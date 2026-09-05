@@ -1,0 +1,11 @@
+# Credenciales reales de Firebase — usa firebase/firebase-config.example.js como plantilla
+firebase/firebase-config.js
+
+# Basura común de SO/editor
+.DS_Store
+Thumbs.db
+
+# Email Worker (Cloudflare) — dependencias y caché local; los secretos de AWS/app
+# nunca viven en archivos, se configuran con `wrangler secret put` (ver email-worker/README.md)
+email-worker/node_modules/
+email-worker/.wrangler/

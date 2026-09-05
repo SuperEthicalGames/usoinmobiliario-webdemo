@@ -1,0 +1,14 @@
+name = "uso-inmobiliario-email"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Valores públicos (no secretos) — ok que vivan en este archivo versionado.
+# Las credenciales reales (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, APP_SHARED_SECRET)
+# se configuran aparte con `wrangler secret put <NOMBRE>` — nunca en este archivo,
+# nunca en el repositorio. Ver README.md de esta carpeta para el paso a paso.
+[vars]
+AWS_REGION = "us-east-1"
+SES_FROM_EMAIL = "reservas@usoinmobiliario.com"
+SES_FROM_NAME = "Uso Inmobiliario"
+SES_REPLY_TO = "usoinmobiliario@gmail.com"
+ALLOWED_ORIGIN = "https://superethicalgames.github.io"

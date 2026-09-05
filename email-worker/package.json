@@ -1,0 +1,16 @@
+{
+  "name": "uso-inmobiliario-email-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker: recibe los datos de una reserva desde index.html y envía el correo transaccional real vía Amazon SES (dominio usoinmobiliario.com, ya verificado en SES).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  }
+}

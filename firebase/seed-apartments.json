@@ -1,0 +1,112 @@
+{
+  "categories": {
+    "estudio": {
+      "catLabel": { "es": "Amoblado Loft 1 Ambiente", "en": "Furnished Loft 1 Room" },
+      "name": { "es": "Apartaestudio, 1 Ambiente", "en": "Studio Apartment, 1 Room" },
+      "shortName": { "es": "1 Ambiente", "en": "1 Room" },
+      "blurb": {
+        "es": "Apartaestudio amoblado con cocina integral con red de gas natural, baño con agua caliente, sala de estudio, iluminación y ventilación natural.",
+        "en": "Furnished studio with an open kitchen on a natural gas line, bathroom with hot water, study nook, natural light and ventilation."
+      },
+      "rooms": [
+        { "slug": "sala-cocina", "img": "media/estudio/sala-cocina.jpg", "thumb": "media/estudio/sala-cocina-thumb.jpg", "area": "14 m² aprox.",
+          "name": { "es": "Sala & Cocina Integral", "en": "Open Kitchen & Living" }, "tag": { "es": "Zona social", "en": "Social zone" },
+          "blurb": { "es": "El corazón del apartaestudio: cocina abierta hacia la sala, pensada para cocinar sin perder la conversación.", "en": "The heart of the studio: kitchen open to the living area, made for cooking without losing the conversation." },
+          "features": [{ "es": "Cocina integral con estufa a gas", "en": "Open kitchen with gas stove" }, { "es": "Nevera y menaje incluidos", "en": "Fridge and kitchenware included" }, { "es": "Sofá para 2 personas", "en": "2-seat sofa" }, { "es": "TV smart", "en": "Smart TV" }] },
+        { "slug": "entretenimiento", "img": "media/estudio/entretenimiento.jpg", "thumb": "media/estudio/entretenimiento-thumb.jpg", "area": "4 m² aprox.",
+          "name": { "es": "Rincón de Entretenimiento", "en": "Entertainment Corner" }, "tag": { "es": "Ocio", "en": "Leisure" },
+          "blurb": { "es": "Un rincón con carácter para música y tiempo libre, separado visualmente del área social.", "en": "A corner with character for music and downtime, visually set apart from the social area." },
+          "features": [{ "es": "Mueble bajo con almacenaje", "en": "Low cabinet with storage" }, { "es": "Estantería abierta", "en": "Open shelving" }, { "es": "Iluminación cálida regulable", "en": "Warm, dimmable lighting" }] },
+        { "slug": "trabajo", "img": "media/estudio/trabajo.jpg", "thumb": "media/estudio/trabajo-thumb.jpg", "area": "4 m² aprox.",
+          "name": { "es": "Zona de Trabajo", "en": "Work Nook" }, "tag": { "es": "Home office", "en": "Home office" },
+          "blurb": { "es": "Escritorio junto a la ventana, listo para teletrabajo sin salir del apartamento.", "en": "A desk by the window, ready for remote work without leaving the apartment." },
+          "features": [{ "es": "Escritorio y silla incluidos", "en": "Desk and chair included" }, { "es": "WiFi de alta velocidad", "en": "High-speed WiFi" }, { "es": "Toma eléctrica cercana", "en": "Nearby power outlet" }] },
+        { "slug": "lectura", "img": "media/estudio/lectura.jpg", "thumb": "media/estudio/lectura-thumb.jpg", "area": "3 m² aprox.",
+          "name": { "es": "Rincón de Lectura", "en": "Reading Corner" }, "tag": { "es": "Descanso", "en": "Rest" },
+          "blurb": { "es": "Un rincón tranquilo para bajar el ritmo al final del día.", "en": "A quiet corner to slow down at the end of the day." },
+          "features": [{ "es": "Poltrona individual", "en": "Single armchair" }, { "es": "Librero personal", "en": "Personal bookshelf" }, { "es": "Luz natural directa", "en": "Direct natural light" }] },
+        { "slug": "comedor", "img": "media/estudio/comedor.jpg", "thumb": "media/estudio/comedor-thumb.jpg", "area": "3 m² aprox.",
+          "name": { "es": "Comedor Íntimo", "en": "Intimate Dining Nook" }, "tag": { "es": "Comedor", "en": "Dining" },
+          "blurb": { "es": "Espacio suficiente para el día a día sin robarle metros a la sala.", "en": "Enough space for daily life without stealing square meters from the living room." },
+          "features": [{ "es": "Mesa para 2 personas", "en": "Table for 2" }, { "es": "Vajilla y menaje básico", "en": "Basic tableware included" }] },
+        { "slug": "bano", "img": "media/estudio/bano.jpg", "thumb": "media/estudio/bano-thumb.jpg", "area": "4 m² aprox.",
+          "name": { "es": "Baño Privado", "en": "Private Bathroom" }, "tag": { "es": "Baño", "en": "Bathroom" },
+          "blurb": { "es": "Baño completo con acabados sencillos y agua caliente todo el día.", "en": "Full bathroom with simple finishes and hot water all day." },
+          "features": [{ "es": "Agua caliente 24/7", "en": "Hot water 24/7" }, { "es": "Ducha con mampara", "en": "Shower with glass panel" }, { "es": "Toallas incluidas", "en": "Towels included" }] }
+      ]
+    },
+    "dos": {
+      "catLabel": { "es": "Amoblado 2 Ambientes", "en": "Furnished 2 Rooms" },
+      "name": { "es": "Apartamento, 2 Ambientes", "en": "Apartment, 2 Rooms" },
+      "shortName": { "es": "2 Ambientes", "en": "2 Rooms" },
+      "blurb": {
+        "es": "Aparta estudio confort: mobiliario más amplio, cocina integral equipada y los mismos básicos incluidos que el resto del catálogo.",
+        "en": "Comfort studio: roomier furnishing, a fully equipped open kitchen, and the same basics included across the catalog."
+      },
+      "rooms": [
+        { "slug": "sala", "img": "media/dos/sala.jpg", "thumb": "media/dos/sala-thumb.jpg", "area": "14 m² aprox.",
+          "name": { "es": "Sala Principal", "en": "Main Living Room" }, "tag": { "es": "Sala", "en": "Living" },
+          "blurb": { "es": "El espacio para recibir visitas o simplemente estirarse, separado del resto del apartamento.", "en": "The space to host guests or just stretch out, set apart from the rest of the apartment." },
+          "features": [{ "es": "Sofás para varias personas", "en": "Multi-seat sofas" }, { "es": "Chimenea decorativa", "en": "Decorative fireplace" }, { "es": "Ventanales con vista al jardín", "en": "Large windows facing the garden" }] },
+        { "slug": "comedor", "img": "media/dos/comedor.jpg", "thumb": "media/dos/comedor-thumb.jpg", "area": "6 m² aprox.",
+          "name": { "es": "Comedor", "en": "Dining Room" }, "tag": { "es": "Comedor", "en": "Dining" },
+          "blurb": { "es": "El punto de encuentro entre la sala y la cocina.", "en": "The meeting point between the living room and the kitchen." },
+          "features": [{ "es": "Mesa para 4 personas", "en": "Table for 4" }, { "es": "Iluminación cálida", "en": "Warm lighting" }, { "es": "Vista directa a la cocina", "en": "Direct view into the kitchen" }] },
+        { "slug": "cocina", "img": "media/dos/cocina.jpg", "thumb": "media/dos/cocina-thumb.jpg", "area": "8 m² aprox.",
+          "name": { "es": "Cocina Equipada", "en": "Equipped Kitchen" }, "tag": { "es": "Cocina", "en": "Kitchen" },
+          "blurb": { "es": "Buena capacidad de almacenaje y electrodomésticos listos para usar.", "en": "Good storage capacity and appliances ready to use." },
+          "features": [{ "es": "Estufa y horno microondas", "en": "Stove and microwave oven" }, { "es": "Nevera de dos puertas", "en": "Two-door fridge" }, { "es": "Isla con barra de desayuno", "en": "Island with breakfast bar" }] },
+        { "slug": "habitacion", "img": "media/dos/habitacion.jpg", "thumb": "media/dos/habitacion-thumb.jpg", "area": "11 m² aprox.",
+          "name": { "es": "Habitación Independiente", "en": "Separate Bedroom" }, "tag": { "es": "Habitación", "en": "Bedroom" },
+          "blurb": { "es": "Cuarto cerrado con puerta propia — la principal diferencia frente al apartaestudio.", "en": "A closed room with its own door — the key difference versus the studio." },
+          "features": [{ "es": "Cama doble", "en": "Double bed" }, { "es": "Escritorio y TV", "en": "Desk and TV" }, { "es": "Clóset empotrado", "en": "Built-in closet" }] },
+        { "slug": "estudio-tv", "img": "media/dos/estudio-tv.jpg", "thumb": "media/dos/estudio-tv-thumb.jpg", "area": "5 m² aprox.",
+          "name": { "es": "Sala de Estar / Estudio", "en": "Den / TV Room" }, "tag": { "es": "Flex", "en": "Flex space" },
+          "blurb": { "es": "Un segundo espacio flexible: TV, juegos o una oficina extra según la necesidad.", "en": "A second flexible space: TV, games, or an extra office depending on the need." },
+          "features": [{ "es": "Segundo sofá", "en": "Second sofa" }, { "es": "TV", "en": "TV" }, { "es": "Espacio adaptable", "en": "Adaptable space" }] },
+        { "slug": "social", "img": "media/dos/social.jpg", "thumb": "media/dos/social-thumb.jpg", "area": "3 m² aprox.",
+          "name": { "es": "Zona Social / Balcón", "en": "Social Area / Balcony" }, "tag": { "es": "Social", "en": "Social" },
+          "blurb": { "es": "Un espacio exterior extra para un café o recibir amigos.", "en": "An extra outdoor space for coffee or having friends over." },
+          "features": [{ "es": "Espacio exterior privado", "en": "Private outdoor space" }, { "es": "Luz natural", "en": "Natural light" }] },
+        { "slug": "bano", "img": "media/dos/bano.jpg", "thumb": "media/dos/bano-thumb.jpg", "area": "5 m² aprox.",
+          "name": { "es": "Baño", "en": "Bathroom" }, "tag": { "es": "Baño", "en": "Bathroom" },
+          "blurb": { "es": "Baño completo con acabados actuales y agua caliente todo el día.", "en": "Full bathroom with modern finishes and hot water all day." },
+          "features": [{ "es": "Agua caliente 24/7", "en": "Hot water 24/7" }, { "es": "Ducha independiente", "en": "Separate shower" }, { "es": "Mueble de almacenaje", "en": "Storage cabinet" }] }
+      ]
+    }
+  },
+
+  "statusMeta": {
+    "disponible": { "es": "Disponible", "en": "Available" },
+    "en-uso": { "es": "En uso", "en": "In use" },
+    "reservado": { "es": "Reservado", "en": "Reserved" }
+  },
+
+  "apartments": {
+    "estudio_09": { "typeKey": "estudio", "num": "09", "status": "disponible", "area": 24, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Barra americana dos puestos", "en": "2-seat breakfast bar" }, "rates": { "one": [100000,85000,75000,75000], "two": [130000,100000,75000,75000], "extra": [50000,50000,50000,50000], "month": 2250000 }, "promo": true },
+    "estudio_26": { "typeKey": "estudio", "num": "26", "status": "disponible", "area": 17, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Comedor dos puestos", "en": "2-seat dining table" }, "rates": { "one": [100000,85000,75000,55000], "two": [130000,100000,90000,55000], "extra": [50000,50000,50000,50000], "month": 1650000 } },
+    "estudio_25": { "typeKey": "estudio", "num": "25", "status": "en-uso", "area": 18, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Barra americana dos puestos", "en": "2-seat breakfast bar" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "estudio_24": { "typeKey": "estudio", "num": "24", "status": "disponible", "area": 20, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Barra americana dos puestos", "en": "2-seat breakfast bar" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "estudio_21": { "typeKey": "estudio", "num": "21", "status": "disponible", "area": 22, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Barra americana dos puestos", "en": "2-seat breakfast bar" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "estudio_17": { "typeKey": "estudio", "num": "17", "status": "reservado", "area": 23, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Piso 2 · Barra americana", "en": "2nd floor · Breakfast bar" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "estudio_13": { "typeKey": "estudio", "num": "13", "status": "disponible", "area": 19, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Piso 2 · Barra americana", "en": "2nd floor · Breakfast bar" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "estudio_11": { "typeKey": "estudio", "num": "11", "status": "disponible", "area": 22, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Piso 2 · Barra americana", "en": "2nd floor · Breakfast bar" }, "rates": { "one": [100000,85000,80000,70000], "two": [130000,100000,90000,70000], "extra": [50000,50000,50000,50000], "month": 2100000 } },
+
+    "dos_22": { "typeKey": "dos", "num": "22", "status": "disponible", "area": 22, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Cocina aparte · Patio con tendedero", "en": "Separate kitchen · Patio with clothesline" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "dos_07": { "typeKey": "dos", "num": "07", "status": "en-uso", "area": 24, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Cocina aparte · Espejo de cuerpo completo", "en": "Separate kitchen · Full-length mirror" }, "rates": { "one": null, "two": null, "extra": null, "month": 2100000 } },
+    "dos_20": { "typeKey": "dos", "num": "20", "status": "disponible", "area": 22, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Cocina aparte · Amplio closet", "en": "Separate kitchen · Roomy closet" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "dos_04": { "typeKey": "dos", "num": "04", "status": "disponible", "area": 34, "maxPersons": 4, "baths": 2, "beds": ["Cama doble 1.40 m", "Cama sencilla 1.00 m"], "feature": { "es": "2 habitaciones · Sala oficina", "en": "2 bedrooms · Office nook" }, "rates": { "one": [200000,200000,150000,85000], "two": [200000,200000,150000,85000], "extra": [50000,50000,50000,0], "month": 2550000 }, "flagship": true },
+    "dos_02": { "typeKey": "dos", "num": "02", "status": "disponible", "area": 25, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Cocina aparte · Escritorio dos puestos", "en": "Separate kitchen · 2-seat desk" }, "rates": { "one": [100000,85000,80000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } },
+    "dos_01": { "typeKey": "dos", "num": "01", "status": "reservado", "area": 30, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Confort · Nevera sin escarcha", "en": "Comfort tier · Frost-free fridge" }, "rates": { "one": [100000,85000,80000,75000], "two": [130000,100000,90000,75000], "extra": [50000,50000,50000,50000], "month": 2250000 }, "flagship": true },
+    "dos_19": { "typeKey": "dos", "num": "19", "status": "disponible", "area": 34, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Balcón privado", "en": "Private balcony" }, "rates": { "one": [130000,85000,80000,75000], "two": [130000,100000,90000,75000], "extra": [50000,50000,50000,50000], "month": 2250000 } },
+    "dos_18": { "typeKey": "dos", "num": "18", "status": "disponible", "area": 30, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m", "Cama semidoble 1.20 m"], "feature": { "es": "2 camas · Interior 200", "en": "2 beds · Interior 200" }, "rates": { "one": [200000,150000,150000,80000], "two": [200000,200000,150000,80000], "extra": [50000,50000,50000,50000], "month": 2400000 } },
+    "dos_12": { "typeKey": "dos", "num": "12", "status": "disponible", "area": 20, "maxPersons": 2, "baths": 1, "beds": ["Cama doble 1.40 m"], "feature": { "es": "Cocina aparte · Piso 2", "en": "Separate kitchen · 2nd floor" }, "rates": { "one": [100000,85000,75000,60000], "two": [130000,100000,90000,60000], "extra": [50000,50000,50000,50000], "month": 1800000 } }
+  },
+
+  "settings": {
+    "visitSlots": {
+      "weekday": ["08:00","09:00","10:00","11:00","12:00","14:00","15:00","16:00","17:00"],
+      "saturday": ["08:30","09:30","10:30","11:30"]
+    }
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "rules": {
+    "categories": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "apartments": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "statusMeta": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "settings": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+
+    "reservationsManager": {
+      "reservations": {
+        ".read": "auth != null",
+        "$code": {
+          ".read": true,
+          ".write": "auth != null || !data.exists()",
+          ".validate": "newData.hasChildren(['code','type','createdAt','name','phone','email','status']) && newData.child('code').val() == $code && newData.child('type').val() == 'reserva'",
+
+          "code": { ".validate": "newData.isString() && newData.val() == $code" },
+          "type": { ".validate": "newData.val() == 'reserva'" },
+          "status": { ".validate": "auth != null || newData.val() == 'pendiente'" },
+          "createdAt": { ".validate": "newData.isString()" },
+          "name": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "phone": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "email": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().matches(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/)" },
+          "notes": { ".validate": "newData.isString()" },
+          "unitType": { ".validate": "newData.isString()" },
+          "unitNum": { ".validate": "newData.isString()" },
+          "unitLabel": { ".validate": "newData.isString()" },
+          "checkin": { ".validate": "newData.isString()" },
+          "checkout": { ".validate": "newData.isString()" },
+          "nights": { ".validate": "newData.isNumber()" },
+          "guests": { ".validate": "newData.isNumber()" },
+          "estTotal": { ".validate": "newData.isNumber()" },
+          "expiresAt": { ".validate": "newData.isNumber()" },
+          "priceSnapshot": {
+            ".validate": "newData.hasChildren(['nights','guests','baseRate','baseTotal','extraGuests','extraRate','extraTotal','discountTotal','total','currency'])",
+            "tier": { ".validate": "newData.isString()" },
+            "nights": { ".validate": "newData.isNumber()" },
+            "guests": { ".validate": "newData.isNumber()" },
+            "baseRate": { ".validate": "newData.isNumber()" },
+            "baseTotal": { ".validate": "newData.isNumber()" },
+            "extraGuests": { ".validate": "newData.isNumber()" },
+            "extraRate": { ".validate": "newData.isNumber()" },
+            "extraTotal": { ".validate": "newData.isNumber()" },
+            "discountTotal": { ".validate": "newData.isNumber()" },
+            "total": { ".validate": "newData.isNumber()" },
+            "currency": { ".validate": "newData.isString()" },
+            "$other": { ".validate": false }
+          },
+
+          "paymentMethod": {
+            ".validate": "newData.val() == 'bank_transfer' || newData.val() == 'cash'",
+            ".write": "auth != null || !data.exists()"
+          },
+          "paymentStatus": {
+            ".validate": "newData.isString()",
+            ".write": "auth != null || (data.exists() && data.val() == 'none' && newData.val() == 'submitted')"
+          },
+          "paymentReport": {
+            ".write": "auth != null || !data.exists()",
+            ".validate": "newData.hasChildren(['reference','date','amount','bank','reportedAt'])",
+            "reference": { ".validate": "newData.isString()" },
+            "date": { ".validate": "newData.isString()" },
+            "amount": { ".validate": "newData.isNumber()" },
+            "bank": { ".validate": "newData.isString()" },
+            "proofUrl": { ".validate": "newData.isString()" },
+            "reportedAt": { ".validate": "newData.isString()" },
+            "$other": { ".validate": false }
+          },
+
+          "$other": { ".validate": false }
+        }
+      },
+      "visits": {
+        "$code": {
+          ".read": true,
+          ".write": "auth != null || !data.exists()",
+          ".validate": "newData.hasChildren(['code','type','createdAt','name','phone','status']) && newData.child('code').val() == $code && newData.child('type').val() == 'cita'",
+
+          "code": { ".validate": "newData.isString() && newData.val() == $code" },
+          "type": { ".validate": "newData.val() == 'cita'" },
+          "status": { ".validate": "auth != null || newData.val() == 'pendiente'" },
+          "createdAt": { ".validate": "newData.isString()" },
+          "name": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "phone": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "email": { ".validate": "newData.isString()" },
+          "notes": { ".validate": "newData.isString()" },
+          "unitType": { ".validate": "newData.isString()" },
+          "unitNum": { ".validate": "newData.isString()" },
+          "unitLabel": { ".validate": "newData.isString()" },
+          "visitDate": { ".validate": "newData.isString()" },
+          "visitTime": { ".validate": "newData.isString()" },
+          "appointmentType": { ".validate": "newData.val() == 'specific_visit' || newData.val() == 'general_visit'" },
+
+          "$other": { ".validate": false }
+        }
+      }
+    },
+
+    "unitBookings": {
+      ".read": true,
+      "$unitKey": {
+        "$code": {
+          ".write": "auth != null || !data.exists()",
+          ".validate": "newData.hasChildren(['status','type'])",
+
+          "status": { ".validate": "auth != null || newData.val() == 'pendiente'" },
+          "type": { ".validate": "newData.val() == 'reserva' || newData.val() == 'cita'" },
+          "checkin": { ".validate": "newData.isString()" },
+          "checkout": { ".validate": "newData.isString()" },
+          "visitDate": { ".validate": "newData.isString()" },
+          "visitTime": { ".validate": "newData.isString()" },
+          "expiresAt": { ".validate": "newData.isNumber()" },
+          "paymentStatus": {
+            ".validate": "newData.isString()",
+            ".write": "auth != null || (data.exists() && data.val() == 'none' && newData.val() == 'submitted')"
+          },
+
+          "$other": { ".validate": false }
+        }
+      }
+    },
+
+    "bookedNights": {
+      "$unitKey": {
+        "$date": {
+          ".read": true,
+          ".write": "auth != null || !data.exists() || (root.child('unitBookings/'+$unitKey+'/'+data.val()+'/expiresAt').val() < now && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/paymentStatus').val() != 'submitted')",
+          ".validate": "newData.isString()"
+        }
+      }
+    },
+
+    "bookedVisitSlots": {
+      "$unitKey": {
+        "$slot": {
+          ".read": true,
+          ".write": "auth != null || !data.exists()",
+          ".validate": "newData.isString()"
+        }
+      }
+    },
+
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}
