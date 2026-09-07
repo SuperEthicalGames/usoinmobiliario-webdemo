@@ -1,0 +1,32 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "email-worker/**",
+      "whatsapp-assistant/**",
+      "firebase/firebase-config.js",
+      "firebase/seed-*.json",
+      "firebase/database.rules.json",
+      "AUDITORIA*.md",
+      "README.md"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(jpg|jpeg|gif|png|webp)",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800, immutable" }]
+      },
+      {
+        "source": "index.html",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      }
+    ],
+    "cleanUrls": true,
+    "trailingSlash": false
+  },
+  "database": {
+    "rules": "firebase/database.rules.json"
+  }
+}

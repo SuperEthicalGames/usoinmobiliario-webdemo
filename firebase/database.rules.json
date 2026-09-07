@@ -82,6 +82,7 @@
         }
       },
       "visits": {
+        ".read": "auth != null",
         "$code": {
           ".read": true,
           ".write": "auth != null || !data.exists()",

@@ -1,0 +1,20 @@
+{
+  "name": "usoinmobiliario-whatsapp-assistant",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Asistente virtual de WhatsApp para Uso Inmobiliario — vendedor/asesor/gestor de reservas. Backend independiente del panel admin de Unity; ambos comparten la misma Firebase Realtime Database como única fuente de verdad.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.3.1"
+  }
+}
