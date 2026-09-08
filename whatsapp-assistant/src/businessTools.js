@@ -10,13 +10,20 @@ const config = require('../config');
 // confirmPayment/approveReservation/verifyPayment/setStatus — esas son exclusivamente
 // administrativas (panel de Unity), nunca alcanzables desde la IA (sección 14/30 del pedido).
 
-// Nombres reales de categorías (ver categories/{typeKey}/name.es en Firebase) — evita la
-// etiqueta anterior "Apartamento H09" que no decía a qué categoría pertenecía el apartamento
-// (causa raíz de un bug real: la IA no podía reconstruir el typeKey desde esa "H" arbitraria).
-const TYPE_DISPLAY_NAMES = { estudio: 'Apartaestudio', dos: 'Apartamento 2 Ambientes' };
+// EXACTAMENTE la misma convención que unitLabel() en index.html ("Apartamento H"+num) — el
+// link que se manda junto a esta etiqueta apunta a esa misma página, así que el nombre tiene
+// que coincidir con lo que el cliente ve ahí. (La resolución de typeKey/num por número, en
+// firebase.js, ya no depende de esta etiqueta — sigue protegiendo contra que la IA adivine mal
+// el typeKey al llamar una función, sin importar cómo se muestre el nombre acá.)
 function apartmentLabel(typeKey, num) {
-  const base = TYPE_DISPLAY_NAMES[typeKey] || 'Apartamento';
-  return `${base} ${num}`;
+  return `Apartamento H${num}`;
+}
+
+// Misma ruta hash que index.html usa para la página de una unidad (#/unidad/:tipo?u=:num, ver
+// route() en index.html) — el link que manda el bot debe ser EXACTAMENTE ese, nunca uno
+// reconstruido a mano, para que apunte de verdad a la ficha real del apartamento.
+function apartmentUrl(typeKey, num) {
+  return `${config.siteBaseUrl}/#/unidad/${typeKey}?u=${num}`;
 }
 
 // Mismo criterio que AvailabilityService.IsUnitBookable en Unity: el campo crudo `status` es
@@ -53,6 +60,7 @@ async function searchApartments({ guests, checkin, checkout, typeKey } = {}) {
         typeKey: apt.typeKey,
         num: apt.num,
         label: apartmentLabel(apt.typeKey, apt.num),
+        url: apartmentUrl(apt.typeKey, apt.num),
         area: apt.area,
         maxPersons: apt.maxPersons,
         baths: apt.baths,
@@ -69,7 +77,7 @@ async function searchApartments({ guests, checkin, checkout, typeKey } = {}) {
 
 async function getApartment({ typeKey, num } = {}) {
   try {
-    if (!typeKey || !num) return { ok: false, error: 'Falta typeKey o num.' };
+    if (!num) return { ok: false, error: 'Falta el número del apartamento.' };
     const apt = await fb.getApartment(typeKey, num);
     if (!apt) return { ok: false, error: 'No existe ese apartamento.' };
     return {
@@ -78,6 +86,7 @@ async function getApartment({ typeKey, num } = {}) {
         typeKey: apt.typeKey,
         num: apt.num,
         label: apartmentLabel(apt.typeKey, apt.num),
+        url: apartmentUrl(apt.typeKey, apt.num),
         status: apt.status,
         area: apt.area,
         maxPersons: apt.maxPersons,
@@ -93,16 +102,24 @@ async function getApartment({ typeKey, num } = {}) {
   }
 }
 
-async function checkAvailabilityTool({ typeKey, num, checkin, checkout } = {}) {
+// Si ya se sabe el número de huéspedes, de una vez calcula el precio en la MISMA llamada —
+// evita que la IA tenga que hacer una segunda ida y vuelta a Gemini solo para pedir el precio
+// justo después de confirmar disponibilidad (el caso más común: "¿está libre y cuánto cuesta?"
+// en un solo mensaje). calculatePrice sigue existiendo aparte para cuando solo hace falta precio.
+async function checkAvailabilityTool({ typeKey, num, checkin, checkout, guests } = {}) {
   try {
-    if (!typeKey || !num) return { ok: false, error: 'Falta typeKey o num.' };
+    if (!num) return { ok: false, error: 'Falta el número del apartamento.' };
     if (!validators.isValidDateRange(checkin, checkout)) {
       return { ok: false, error: 'Fechas inválidas. Formato AAAA-MM-DD, checkout después de checkin.' };
     }
     const apt = await fb.getApartment(typeKey, num);
     if (!isUnitBookable(apt)) return { ok: true, available: false, reason: 'unit_not_bookable' };
     const result = await fb.checkAvailability(apt.typeKey, apt.num, checkin, checkout);
-    return { ok: true, ...result };
+    if (!result.available || !validators.isPositiveInt(guests)) return { ok: true, ...result };
+
+    const nights = dateUtil.nightsBetween(checkin, checkout).length;
+    const breakdown = pricing.priceBreakdown(apt, nights, guests);
+    return { ok: true, ...result, priceEstimate: breakdown ? { total: breakdown.total, currency: breakdown.currency, nights: breakdown.nights } : null };
   } catch (err) {
     console.error('[businessTools.checkAvailability]', err);
     return { ok: false, error: 'No se pudo verificar disponibilidad en este momento.' };
@@ -111,7 +128,7 @@ async function checkAvailabilityTool({ typeKey, num, checkin, checkout } = {}) {
 
 async function calculatePriceTool({ typeKey, num, checkin, checkout, guests } = {}) {
   try {
-    if (!typeKey || !num) return { ok: false, error: 'Falta typeKey o num.' };
+    if (!num) return { ok: false, error: 'Falta el número del apartamento.' };
     if (!validators.isValidDateRange(checkin, checkout)) {
       return { ok: false, error: 'Fechas inválidas. Formato AAAA-MM-DD, checkout después de checkin.' };
     }
@@ -301,14 +318,15 @@ async function setPaymentMethodTool({ code, method } = {}) {
 async function reportPaymentTool({ code, amount, reference, bank, date } = {}) {
   try {
     if (!validators.isValidCodeFormat(code)) return { ok: false, error: 'Formato de código inválido.' };
-    if (!amount || !reference || !bank) {
-      return { ok: false, error: 'Falta información del comprobante (monto, referencia, banco).' };
+    const missing = validators.missingPaymentReportFields({ amount, reference, bank });
+    if (missing.length > 0) {
+      return { ok: false, missingFields: missing, error: `Falta información real del comprobante: ${missing.join(', ')}.` };
     }
     const report = {
       amount: Number(amount),
       reference: String(reference).trim(),
       bank: String(bank).trim(),
-      date: date || dateUtil.todayIsoBogota(),
+      date: dateUtil.isValidIsoDate(date) ? date : dateUtil.todayIsoBogota(),
       reportedAt: new Date().toISOString(),
     };
     await fb.reportPayment(code.toUpperCase(), report);

@@ -24,9 +24,17 @@
       }
     ],
     "cleanUrls": true,
-    "trailingSlash": false
+    "trailingSlash": false,
+    "rewrites": [
+      { "source": "/webhook/**", "function": "api" },
+      { "source": "/health", "function": "api" }
+    ]
   },
   "database": {
     "rules": "firebase/database.rules.json"
+  },
+  "functions": {
+    "source": "whatsapp-assistant",
+    "runtime": "nodejs20"
   }
 }

@@ -46,6 +46,11 @@ const config = {
     model: optional('OPENAI_MODEL', 'gpt-4o-mini'),
   },
 
+  // URL pública donde vive el sitio (index.html, Firebase Hosting) — usada para armar el link
+  // real de cada apartamento (misma ruta hash que ya existe en el sitio: #/unidad/:tipo?u=:num,
+  // ver route() en index.html). Sin barra final.
+  siteBaseUrl: optional('SITE_BASE_URL', 'https://superethicalgames.github.io/usoinmobiliariodemo'),
+
   // Duración del HOLD — debe coincidir EXACTAMENTE con HOLD_DURATION_MS de index.html y
   // DateUtil.HoldDurationMs de Unity. Un solo negocio, una sola regla, en tres lugares.
   holdDurationMs: 15 * 60 * 1000,
@@ -55,11 +60,9 @@ const config = {
   conversationTtlMs: 30 * 60 * 1000,
 };
 
-if (!config.firebase.serviceAccountJson && !config.firebase.serviceAccountPath) {
-  throw new Error(
-    'Debes definir FIREBASE_SERVICE_ACCOUNT_JSON o FIREBASE_SERVICE_ACCOUNT_PATH (ver .env.example)'
-  );
-}
+// FIREBASE_SERVICE_ACCOUNT_JSON/PATH ya NO es obligatorio: solo hace falta en local. Corriendo
+// dentro de Cloud Functions/Cloud Run del mismo proyecto, firebase.js usa credenciales
+// automáticas del entorno — no hay nada que definir acá (ver firebase.js:init()).
 
 if (config.llm.provider === 'openai' && !config.openai.apiKey) {
   throw new Error('LLM_PROVIDER=openai pero falta OPENAI_API_KEY (ver .env.example)');

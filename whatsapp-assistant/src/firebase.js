@@ -19,8 +19,13 @@ function loadServiceAccount() {
 let app;
 function init() {
   if (app) return app;
+  // En local hace falta un archivo/JSON de cuenta de servicio explícito. Corriendo dentro de
+  // Cloud Functions/Cloud Run del MISMO proyecto, el SDK ya tiene credenciales automáticas
+  // (Application Default Credentials) — no hay archivo que descargar ni subir, y de hecho no
+  // debería subirse nunca a producción. Mismo databaseURL en ambos casos.
+  const hasExplicitCredential = !!(config.firebase.serviceAccountJson || config.firebase.serviceAccountPath);
   app = admin.initializeApp({
-    credential: admin.credential.cert(loadServiceAccount()),
+    credential: hasExplicitCredential ? admin.credential.cert(loadServiceAccount()) : admin.credential.applicationDefault(),
     databaseURL: config.firebase.databaseURL,
   });
   return app;
@@ -100,14 +105,16 @@ async function getApartments() {
 // aunque Firebase mostraba disponibilidad real. Como `num` es único en TODO el catálogo (sin
 // choques entre categorías, verificado contra los datos reales), buscar por número solo es un
 // respaldo seguro cuando la clave exacta no existe.
+// Un cliente real dice "H09", "habitación 09", "la 09" o "quiero la 9" — el prompt le pide a
+// la IA que extraiga solo el número, pero no hay que depender de que lo haga perfecto siempre:
+// esto quita cualquier letra/espacio (deja solo dígitos) antes de comparar, así "H09"/"h9"/"09"
+// (con o sin cero a la izquierda) resuelven al mismo apartamento sin importar qué mandó la IA.
 async function findApartmentByNum(num) {
-  const target = String(num).padStart(2, '0');
+  const digitsOnly = String(num).replace(/\D/g, '');
+  if (!digitsOnly) return null;
+  const target = digitsOnly.padStart(2, '0');
   const apartments = await getApartments();
-  return (
-    apartments.find((a) => String(a.num).padStart(2, '0') === target) ||
-    apartments.find((a) => String(a.num) === String(num)) ||
-    null
-  );
+  return apartments.find((a) => String(a.num).replace(/\D/g, '').padStart(2, '0') === target) || null;
 }
 
 async function getApartment(typeKey, num) {

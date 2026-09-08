@@ -1,0 +1,41 @@
+# Blueprint de Render.com para el bot de WhatsApp — nivel gratuito, sin tarjeta.
+# Al conectar este repo en render.com (New > Blueprint), Render lee este archivo y prepara el
+# servicio automáticamente; solo faltaría rellenar las variables marcadas sync:false (los
+# secretos reales, que nunca deben vivir en este archivo versionado) en el dashboard de Render.
+services:
+  - type: web
+    name: usoinmobiliario-whatsapp-bot
+    runtime: node
+    plan: free
+    rootDir: whatsapp-assistant
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: FIREBASE_DATABASE_URL
+        value: https://usoinmobiliario-c8e83-default-rtdb.firebaseio.com
+      - key: SITE_BASE_URL
+        value: https://superethicalgames.github.io/usoinmobiliariodemo
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-flash-lite-latest
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: WHATSAPP_API_VERSION
+        value: v20.0
+      # Secretos reales — se rellenan a mano en el dashboard de Render, nunca aquí:
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
