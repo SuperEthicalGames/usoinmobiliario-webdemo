@@ -61,6 +61,15 @@ const config = {
   // entorno si el panel termina en otro host.
   adminOrigin: optional('ADMIN_ORIGIN', 'https://superethicalgames.github.io'),
 
+  // El único admin que puede crear/revocar OTROS admins (sección "sistema de registro solo
+  // para el administrador principal" del pedido). No usa custom claims de Firebase (exigiría
+  // un paso de bootstrap aparte) — con una sola cuenta "principal" ya conocida de antemano,
+  // comparar el email del token verificado contra este valor es correcto y no hay que
+  // sobre-diseñarlo. Cualquier admin nuevo que el principal cree NUNCA puede ser principal él
+  // mismo (no hay forma de que su email coincida con este valor a menos que de verdad sea esta
+  // cuenta), así que la restricción es real, no solo de UI.
+  superAdminEmail: optional('SUPER_ADMIN_EMAIL', 'usoinmobiliario@gmail.com'),
+
   // Correo transaccional real, $0 — SMTP de Gmail con la cuenta real del negocio + una
   // "contraseña de aplicación" (requiere verificación en dos pasos activada en esa cuenta de
   // Gmail; Google > Cuenta > Seguridad > Contraseñas de aplicaciones). No es la contraseña

@@ -133,6 +133,24 @@ async function getPaymentInfo() {
   return snap.val() || null;
 }
 
+// Antes esto solo se editaba a mano en la consola de Firebase (decisión original: "el sitio
+// tampoco ofrece edición, no se agrega acá" — pedido nuevo del usuario la reabre a propósito).
+// Reemplaza el objeto completo — mismas 4 llaves siempre, nunca un merge parcial que pueda
+// dejar mezclados datos viejos y nuevos de cuentas bancarias distintas.
+async function setPaymentInfo({ bankName, accountHolder, accountType, accountNumber }) {
+  const value = {
+    bankName: String(bankName || '').trim(),
+    accountHolder: String(accountHolder || '').trim(),
+    accountType: String(accountType || '').trim(),
+    accountNumber: String(accountNumber || '').trim(),
+  };
+  if (!value.bankName || !value.accountHolder || !value.accountType || !value.accountNumber) {
+    const e = new Error('missing-fields'); e.code = 'invalid'; throw e;
+  }
+  await dbSet('settings/paymentInfo', value);
+  return value;
+}
+
 // --- Reservas / citas: lectura ---
 
 async function getReservationByCode(code) {
@@ -508,6 +526,35 @@ async function getDashboardSummary() {
   return summary;
 }
 
+// --- Gestión de administradores (solo el super admin llega hasta acá, ver
+// adminAuth.requireSuperAdmin) — usa Firebase Auth directo (admin.auth()), no Realtime
+// Database. "Revocar" es deshabilitar (admin.auth().updateUser disabled:true), no borrar: es
+// reversible, y verifyIdToken ya rechaza el token de una cuenta deshabilitada en la siguiente
+// petición (no hace falta esperar a que expire solo). Crear un admin nuevo NUNCA puede volverlo
+// super admin — eso depende únicamente de que su correo coincida con config.superAdminEmail,
+// algo que quien lo crea no controla al llenar un formulario. ---
+
+async function listAdminUsers() {
+  const result = await admin.auth().listUsers(1000);
+  return result.users.map((u) => ({
+    uid: u.uid,
+    email: u.email,
+    disabled: u.disabled,
+    createdAt: u.metadata.creationTime,
+    lastSignInAt: u.metadata.lastSignInTime || null,
+  }));
+}
+
+async function createAdminUser(email, password) {
+  const user = await admin.auth().createUser({ email: String(email).trim(), password: String(password) });
+  return { uid: user.uid, email: user.email, disabled: false, createdAt: user.metadata.creationTime, lastSignInAt: null };
+}
+
+async function setAdminUserDisabled(uid, disabled) {
+  const user = await admin.auth().updateUser(uid, { disabled: !!disabled });
+  return { uid: user.uid, email: user.email, disabled: user.disabled, createdAt: user.metadata.creationTime, lastSignInAt: user.metadata.lastSignInTime || null };
+}
+
 module.exports = {
   init,
   db,
@@ -518,6 +565,10 @@ module.exports = {
   getApartment,
   getStatusMeta,
   getPaymentInfo,
+  setPaymentInfo,
+  listAdminUsers,
+  createAdminUser,
+  setAdminUserDisabled,
   getReservationByCode,
   getUnitBookings,
   checkAvailability,

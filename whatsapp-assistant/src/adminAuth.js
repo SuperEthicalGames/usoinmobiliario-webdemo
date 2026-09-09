@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 const firebase = require('./firebase');
+const config = require('../config');
 
 // Único guardián de /admin/api/* — verifica un ID token real de Firebase Auth (el panel de
 // usoinmobiliario-middleware inicia sesión con el mismo Email/Password del único admin, ya
@@ -31,4 +32,14 @@ async function requireAdminAuth(req, res, next) {
   }
 }
 
-module.exports = { requireAdminAuth };
+// Segunda puerta, SOLO para rutas sensibles (gestionar otros admins, editar datos bancarios) —
+// siempre montada DESPUÉS de requireAdminAuth (necesita req.adminUser ya puesto). Un admin
+// normal pasa requireAdminAuth pero no esto; nunca al revés.
+function requireSuperAdmin(req, res, next) {
+  if (!req.adminUser || req.adminUser.email !== config.superAdminEmail) {
+    return res.status(403).json({ error: 'not-super-admin' });
+  }
+  next();
+}
+
+module.exports = { requireAdminAuth, requireSuperAdmin };
