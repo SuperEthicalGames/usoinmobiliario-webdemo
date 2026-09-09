@@ -1,6 +1,3 @@
-# Credenciales reales de Firebase — usa firebase/firebase-config.example.js como plantilla
-firebase/firebase-config.js
-
 # Basura común de SO/editor
 .DS_Store
 Thumbs.db
