@@ -27,6 +27,14 @@ const config = {
     phoneNumberId: required('WHATSAPP_PHONE_NUMBER_ID'),
     verifyToken: required('WHATSAPP_VERIFY_TOKEN'),
     apiVersion: optional('WHATSAPP_API_VERSION', 'v20.0'),
+    // "App Secret" de Meta for Developers > tu app > Configuración > Básica (NO es
+    // WHATSAPP_TOKEN ni WHATSAPP_VERIFY_TOKEN, es un tercer valor distinto) — firma cada
+    // webhook entrante para confirmar que de verdad viene de Meta. OPCIONAL a propósito: el
+    // bot ya está desplegado y funcionando sin esto (ver AUDITORIA_COMPLETA.md, hallazgo de
+    // severidad alta) — exigirlo con required() habría roto el despliegue actual en Render en
+    // el próximo deploy. Mientras no esté configurado, la verificación se salta con una
+    // advertencia clara en los logs en vez de rechazar tráfico real de Meta.
+    appSecret: optional('WHATSAPP_APP_SECRET', ''),
   },
 
   // 'gemini' (gratis, cuota limitada) u 'openai' (de pago, separado de cualquier suscripción
@@ -44,6 +52,22 @@ const config = {
   openai: {
     apiKey: optional('OPENAI_API_KEY', ''),
     model: optional('OPENAI_MODEL', 'gpt-4o-mini'),
+  },
+
+  // Origen permitido para /admin/api/* — un panel de administración separado (repo
+  // usoinmobiliario-middleware, React+Vite+TS), NUNCA el mismo origen que /chat/web/*
+  // (config.siteBaseUrl) ni el mismo CORS. Valor por defecto asumiendo GitHub Pages para el
+  // panel (mismo mecanismo ya probado y gratis del sitio principal) — cambiar por variable de
+  // entorno si el panel termina en otro host.
+  adminOrigin: optional('ADMIN_ORIGIN', 'https://superethicalgames.github.io'),
+
+  // Correo transaccional real, $0 — SMTP de Gmail con la cuenta real del negocio + una
+  // "contraseña de aplicación" (requiere verificación en dos pasos activada en esa cuenta de
+  // Gmail; Google > Cuenta > Seguridad > Contraseñas de aplicaciones). No es la contraseña
+  // normal de la cuenta — nunca usar esa.
+  email: {
+    gmailUser: optional('GMAIL_USER', 'usoinmobiliario@gmail.com'),
+    gmailAppPassword: optional('GMAIL_APP_PASSWORD', ''),
   },
 
   // URL pública donde vive el sitio (index.html, Firebase Hosting) — usada para armar el link

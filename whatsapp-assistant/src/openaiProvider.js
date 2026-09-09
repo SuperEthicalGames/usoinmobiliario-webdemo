@@ -76,11 +76,14 @@ function toOpenAiRole(role) {
   return role === 'model' ? 'assistant' : role;
 }
 
-async function handleIncomingMessage(phone, userText) {
-  const isFirstMessage = conversationStore.get(phone) === null;
-  const history = conversationStore.getOrCreate(phone);
+// Canal-agnóstico por construcción: `conversationKey` es un string opaco (número de WhatsApp,
+// o "web:<sessionId>" para el chat del sitio — namespacing que ya hace la ruta que llama esto).
+// `channel` ('whatsapp' por defecto | 'web') solo afecta el system prompt.
+async function handleIncomingMessage(conversationKey, userText, channel) {
+  const isFirstMessage = conversationStore.get(conversationKey) === null;
+  const history = conversationStore.getOrCreate(conversationKey);
   const messages = [
-    { role: 'system', content: buildSystemInstruction(isFirstMessage) },
+    { role: 'system', content: buildSystemInstruction(isFirstMessage, channel) },
     ...history.map((h) => ({ role: toOpenAiRole(h.role), content: h.parts.map((p) => p.text || '').join('') })),
     { role: 'user', content: userText },
   ];
@@ -117,8 +120,8 @@ async function handleIncomingMessage(phone, userText) {
     console.error('[openaiProvider] Se agotó el límite de turnos de function calling sin respuesta de texto.');
   }
 
-  conversationStore.append(phone, { role: 'user', parts: [{ text: userText }] });
-  conversationStore.append(phone, { role: 'model', parts: [{ text: finalText }] });
+  conversationStore.append(conversationKey, { role: 'user', parts: [{ text: userText }] });
+  conversationStore.append(conversationKey, { role: 'model', parts: [{ text: finalText }] });
   return finalText;
 }
 

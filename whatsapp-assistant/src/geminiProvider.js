@@ -26,10 +26,10 @@ function toGeminiSchema(schema) {
 
 const functionDeclarations = toolSchemas.map((t) => ({ ...t, parameters: toGeminiSchema(t.parameters) }));
 
-async function callGemini(contents, isFirstMessage) {
+async function callGemini(contents, isFirstMessage, channel) {
   const url = `${API_BASE}/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
   const payload = JSON.stringify({
-    systemInstruction: { parts: [{ text: buildSystemInstruction(isFirstMessage) }] },
+    systemInstruction: { parts: [{ text: buildSystemInstruction(isFirstMessage, channel) }] },
     contents,
     tools: [{ functionDeclarations }],
   });
@@ -90,12 +90,15 @@ async function callGemini(contents, isFirstMessage) {
   throw lastErr;
 }
 
-// Procesa un mensaje entrante de un número de WhatsApp y devuelve el texto de respuesta.
+// Procesa un mensaje entrante y devuelve el texto de respuesta — canal-agnóstico por
+// construcción: `conversationKey` es un string opaco (número de WhatsApp, o "web:<sessionId>"
+// para el chat del sitio, namespacing que ya hace la ruta que llama esto, no esta función).
 // Mantiene el historial de la conversación en conversationStore entre mensajes (mismo shape
-// {role, parts} que espera la API, así se puede pasar tal cual como `contents`).
-async function handleIncomingMessage(phone, userText) {
-  const isFirstMessage = conversationStore.get(phone) === null;
-  const history = conversationStore.getOrCreate(phone);
+// {role, parts} que espera la API, así se puede pasar tal cual como `contents`). `channel`
+// ('whatsapp' por defecto | 'web') solo afecta el system prompt (ver assistantCore.js).
+async function handleIncomingMessage(conversationKey, userText, channel) {
+  const isFirstMessage = conversationStore.get(conversationKey) === null;
+  const history = conversationStore.getOrCreate(conversationKey);
   const contents = [...history, { role: 'user', parts: [{ text: userText }] }];
 
   let guard = 0;
@@ -103,7 +106,7 @@ async function handleIncomingMessage(phone, userText) {
 
   while (guard < 6) {
     guard++;
-    const result = await callGemini(contents, isFirstMessage);
+    const result = await callGemini(contents, isFirstMessage, channel);
     const candidate = result.candidates && result.candidates[0];
     const parts = (candidate && candidate.content && candidate.content.parts) || [];
     const functionCallParts = parts.filter((p) => p.functionCall);
@@ -131,8 +134,8 @@ async function handleIncomingMessage(phone, userText) {
     console.error('[geminiProvider] Se agotó el límite de turnos de function calling sin respuesta de texto.');
   }
 
-  conversationStore.append(phone, { role: 'user', parts: [{ text: userText }] });
-  conversationStore.append(phone, { role: 'model', parts: [{ text: finalText }] });
+  conversationStore.append(conversationKey, { role: 'user', parts: [{ text: userText }] });
+  conversationStore.append(conversationKey, { role: 'model', parts: [{ text: finalText }] });
   return finalText;
 }
 

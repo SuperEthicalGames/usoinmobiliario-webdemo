@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const fs = require('fs');
 const config = require('../config');
-const { nightsBetween, nowEpochMs } = require('./dateUtil');
+const { nightsBetween, nowEpochMs, todayIsoBogota } = require('./dateUtil');
 
 // Único lugar que toca el SDK de Firebase Admin — mismo principio de capas que el proyecto
 // Unity (UI -> Services -> Repositories -> Firebase): businessTools.js llama estas funciones,
@@ -359,6 +359,155 @@ async function setPaymentMethod(code, method) {
   return getReservationByCode(code);
 }
 
+// --- Acciones administrativas (panel web, nunca alcanzables desde la IA) ---
+// Puerto directo de ReservationLifecycleService/IReservationRepository/PaymentService en
+// Unity (ya validados, no se inventa lógica nueva) y de setReservationStatus en
+// firebase/FirebaseDataProvider.js (libera bookedNights/bookedVisitSlots al rechazar/
+// cancelar, para no dejar fechas bloqueadas para siempre). Estas funciones NUNCA se exponen
+// en businessTools.js — solo las llaman las rutas /admin/api/*, protegidas por adminAuth.js.
+
+// Cambia status y, salvo en una cita general (que nunca reclama unitBookings/bookedNights/
+// bookedVisitSlots — no hay unidad que liberar), espeja el cambio en unitBookings y libera
+// las noches/turno ocupados si el resultado es rechazada/cancelada.
+async function setReservationStatus(code, status) {
+  const rec = await getReservationByCode(code);
+  if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
+
+  const updates = { [`${pathFor(rec.type)}/${code}/status`]: status };
+  const isGeneralVisit = rec.type === 'cita' && rec.appointmentType === 'general_visit';
+  if (!isGeneralVisit && rec.unitType && rec.unitNum) {
+    const unitKey = unitKeyOf(rec.unitType, rec.unitNum);
+    updates[`unitBookings/${unitKey}/${code}/status`] = status;
+    if (status === 'rechazada' || status === 'cancelada') {
+      if (rec.type === 'reserva') {
+        for (const n of nightsBetween(rec.checkin, rec.checkout)) {
+          updates[`bookedNights/${unitKey}/${n}`] = null;
+        }
+      } else {
+        updates[`bookedVisitSlots/${unitKey}/${rec.visitDate}_${rec.visitTime}`] = null;
+      }
+    }
+  }
+  await dbUpdate(updates);
+  return getReservationByCode(code);
+}
+const confirmReservation = (code) => setReservationStatus(code, 'confirmada');
+const rejectReservation = (code) => setReservationStatus(code, 'rechazada');
+const cancelReservation = (code) => setReservationStatus(code, 'cancelada');
+const completeReservation = (code) => setReservationStatus(code, 'completada');
+
+async function setPaymentVerification(code, paymentStatus) {
+  const rec = await getReservationByCode(code);
+  if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
+  if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'invalid'; throw e; }
+  const unitKey = unitKeyOf(rec.unitType, rec.unitNum);
+  const updates = {
+    [`${pathFor('reserva')}/${code}/paymentStatus`]: paymentStatus,
+    [`unitBookings/${unitKey}/${code}/paymentStatus`]: paymentStatus,
+  };
+  await dbUpdate(updates);
+  return getReservationByCode(code);
+}
+const verifyPayment = (code) => setPaymentVerification(code, 'verified');
+const rejectPayment = (code) => setPaymentVerification(code, 'rejected');
+
+// El efectivo nunca pasa por 'submitted' (el cliente no reporta nada por su cuenta) — el
+// admin confirma en persona que recibió el dinero, saltando directo a 'verified'. Mismo
+// contrato exacto que PaymentService.RegisterCashPaymentAsync en Unity: sin monto, sin
+// paymentReport (eso es solo para transferencias, donde el cliente sí llena un formulario).
+async function registerCashPayment(code) {
+  const rec = await getReservationByCode(code);
+  if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
+  if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'invalid'; throw e; }
+  if (rec.paymentMethod !== 'cash') { const e = new Error('not-cash-payment'); e.code = 'invalid'; throw e; }
+  return setPaymentVerification(code, 'verified');
+}
+
+// --- Lecturas administrativas: traen todo y filtran en memoria, mismo patrón que ya usa
+// getApartments() — sin precedente de orderByChild/equalTo en este proyecto, y a esta escala
+// (17 apartamentos, decenas de reservas) no hace falta. Devuelven los registros completos
+// (no la proyección angosta de getReservationTool en businessTools.js, pensada para la IA) —
+// la pantalla de Pagos necesita paymentReport/priceSnapshot. ---
+
+async function listReservations() {
+  const snap = await dbGet('reservationsManager/reservations');
+  return Object.values(snap.val() || {});
+}
+
+async function listVisits() {
+  const snap = await dbGet('reservationsManager/visits');
+  return Object.values(snap.val() || {});
+}
+
+async function getAllUnitBookings() {
+  const snap = await dbGet('unitBookings');
+  return snap.val() || {};
+}
+
+// Apartamento + su status EFECTIVO (mismo effectiveStatus() de arriba, ya escrito, antes sin
+// ningún caller — ver auditoría) — un solo fetch de unitBookings para las 17 unidades, no uno
+// por unidad.
+async function listApartmentsWithEffectiveStatus() {
+  const [apartments, allBookings] = await Promise.all([getApartments(), getAllUnitBookings()]);
+  const todayIso = todayIsoBogota();
+  return apartments.map((apt) => ({
+    ...apt,
+    effectiveStatus: effectiveStatus(apt, allBookings[unitKeyOf(apt.typeKey, apt.num)], todayIso),
+  }));
+}
+
+// Puerto directo de DashboardService.GetSummaryAsync (Unity) — mismos 3 bloques, cada uno con
+// su propio try/catch (una regla de Firebase todavía no publicada para "visits" no debe tumbar
+// el resto del panel, solo dejar esa sección vacía; ya pasó exactamente esto en Unity).
+async function getDashboardSummary() {
+  const summary = {
+    availableCount: 0, inUseCount: 0, reservedCount: 0,
+    pendingReservations: 0, confirmedReservations: 0,
+    activeHolds: 0, pendingPaymentVerifications: 0,
+    upcomingVisits: [],
+  };
+  const todayIso = todayIsoBogota();
+
+  try {
+    const [apartments, allBookings] = await Promise.all([getApartments(), getAllUnitBookings()]);
+    for (const apt of apartments) {
+      const effective = effectiveStatus(apt, allBookings[unitKeyOf(apt.typeKey, apt.num)], todayIso);
+      if (effective === 'disponible') summary.availableCount++;
+      else if (effective === 'en-uso') summary.inUseCount++;
+      else if (effective === 'reservado') summary.reservedCount++;
+    }
+  } catch (err) {
+    console.error('[firebase] getDashboardSummary: no se pudieron cargar apartamentos', err);
+  }
+
+  try {
+    const reservations = await listReservations();
+    const nowMs = nowEpochMs();
+    for (const r of reservations) {
+      if (r.status === 'pendiente') summary.pendingReservations++;
+      else if (r.status === 'confirmada') summary.confirmedReservations++;
+      if (r.status === 'pendiente' && r.expiresAt && r.paymentStatus !== 'submitted' && r.expiresAt >= nowMs) {
+        summary.activeHolds++;
+      }
+      if (r.paymentStatus === 'submitted') summary.pendingPaymentVerifications++;
+    }
+  } catch (err) {
+    console.error('[firebase] getDashboardSummary: no se pudieron cargar reservas', err);
+  }
+
+  try {
+    const visits = await listVisits();
+    summary.upcomingVisits = visits
+      .filter((v) => v.status === 'pendiente' && v.visitDate && v.visitDate >= todayIso)
+      .sort((a, b) => (a.visitDate + a.visitTime).localeCompare(b.visitDate + b.visitTime))
+      .slice(0, 10);
+  } catch (err) {
+    console.error('[firebase] getDashboardSummary: no se pudieron cargar visitas', err);
+  }
+
+  return summary;
+}
+
 module.exports = {
   init,
   db,
@@ -378,4 +527,17 @@ module.exports = {
   createGeneralVisit,
   reportPayment,
   setPaymentMethod,
+  setReservationStatus,
+  confirmReservation,
+  rejectReservation,
+  cancelReservation,
+  completeReservation,
+  verifyPayment,
+  rejectPayment,
+  registerCashPayment,
+  listReservations,
+  listVisits,
+  getAllUnitBookings,
+  listApartmentsWithEffectiveStatus,
+  getDashboardSummary,
 };

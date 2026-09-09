@@ -1,4 +1,6 @@
+const crypto = require('crypto');
 const config = require('../config');
+const { normalizeMarkup } = require('./markup');
 
 // Único lugar que habla con WhatsApp Cloud API (sección 25 del pedido) — verificación del
 // webhook, parseo de mensajes entrantes, envío de respuestas. Nada de lógica de negocio ni de
@@ -17,6 +19,35 @@ function verifyWebhook(query) {
     return challenge;
   }
   return null;
+}
+
+// Confirma que un POST al webhook realmente viene de Meta — hallazgo de severidad alta de
+// AUDITORIA_COMPLETA.md: sin esto, cualquiera que encuentre la URL puede mandar un payload
+// fabricado y el bot lo procesa como si fuera un cliente real (gasto de cuota de IA, HOLDs
+// falsos, mensajes salientes a un número elegido por el atacante usando el WhatsApp real del
+// negocio). Meta firma el body crudo con HMAC-SHA256 usando el "App Secret" (Meta for
+// Developers > tu app > Configuración > Básica — un tercer valor, distinto de
+// WHATSAPP_TOKEN/WHATSAPP_VERIFY_TOKEN) — hay que comparar contra el body SIN parsear (ver
+// app.js: express.json({verify}) captura esos bytes crudos antes de convertirlos a objeto,
+// porque JSON.stringify(req.body) no siempre reproduce byte a byte lo que Meta mandó).
+let warnedNotConfigured = false;
+function verifySignature(rawBody, signatureHeader) {
+  if (!config.whatsapp.appSecret) {
+    if (!warnedNotConfigured) {
+      console.warn('[whatsapp] WHATSAPP_APP_SECRET no configurado — la firma del webhook NO se está verificando todavía (ver AUDITORIA_COMPLETA.md, hallazgo de severidad alta). No bloquea tráfico real de Meta mientras tanto.');
+      warnedNotConfigured = true;
+    }
+    return true;
+  }
+  if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+  const expectedHex = crypto.createHmac('sha256', config.whatsapp.appSecret).update(rawBody).digest('hex');
+  const providedHex = signatureHeader.slice(7);
+  if (expectedHex.length !== providedHex.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(providedHex, 'hex'));
+  } catch {
+    return false;
+  }
 }
 
 // Extrae el primer mensaje de texto entrante del payload del webhook, o null si el evento no
@@ -40,37 +71,13 @@ function parseIncomingMessage(body) {
   }
 }
 
-// Red de seguridad además de la instrucción en el prompt (assistantCore.js) — confirmado en
-// vivo (2026-09-07, mensaje de diagnóstico real) que WhatsApp NO renderiza Markdown estilo
-// GitHub: **negrilla**/__negrilla__ salen con los símbolos literales en pantalla, solo el
-// marcado propio de WhatsApp (*negrilla*, _cursiva_, ~tachado~) funciona. El modelo puede
-// olvidar la regla del prompt bajo presión (cadena larga de function calls, modelo más
-// pequeño); esto lo corrige de todas formas justo antes de enviar, sin depender de que la IA
-// nunca se equivoque.
-// WhatsApp empareja los símbolos de marcado en orden a lo largo de TODO el mensaje — si queda
-// una cantidad impar de un símbolo (por un asterisco de más, o una negrilla que el modelo dejó
-// sin cerrar), no solo ese símbolo se ve literal: puede arrastrar y romper el emparejamiento de
-// TODO lo que sigue en el mensaje. Más seguro quitar el símbolo por completo en ese caso que
-// dejarlo mostrar roto.
-function stripIfUnbalanced(text, marker) {
-  const count = text.split(marker).length - 1;
-  return count % 2 === 0 ? text : text.split(marker).join('');
-}
-
-function sanitizeForWhatsApp(text) {
-  let out = text
-    .replace(/\*\*(.+?)\*\*/g, '*$1*')
-    .replace(/__(.+?)__/g, '*$1*')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1: $2');
-  out = stripIfUnbalanced(out, '*');
-  out = stripIfUnbalanced(out, '_');
-  out = stripIfUnbalanced(out, '~');
-  return out;
-}
+// La normalización de marcado (negrilla/cursiva/tachado, balance de símbolos) vive en
+// markup.js — WhatsApp NO renderiza Markdown estilo GitHub (**negrilla** sale literal en
+// pantalla, confirmado en vivo 2026-09-07), pero el problema de fondo es del MODELO, no de
+// este canal, así que la protección es compartida, no una copia local.
 
 async function sendTextMessage(to, rawText) {
-  const text = sanitizeForWhatsApp(rawText);
+  const text = normalizeMarkup(rawText);
   const url = `${GRAPH_BASE}/${config.whatsapp.phoneNumberId}/messages`;
 
   // Sin timeout, un fetch() colgado bloquearía el envío para siempre (mismo problema real
@@ -110,4 +117,4 @@ async function sendTextMessage(to, rawText) {
   return body;
 }
 
-module.exports = { verifyWebhook, parseIncomingMessage, sendTextMessage };
+module.exports = { verifyWebhook, verifySignature, parseIncomingMessage, sendTextMessage };

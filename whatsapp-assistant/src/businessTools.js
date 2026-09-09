@@ -3,6 +3,7 @@ const pricing = require('./pricing');
 const dateUtil = require('./dateUtil');
 const validators = require('./validators');
 const config = require('../config');
+const emailService = require('./emailService');
 
 // Las únicas funciones que el modelo de IA puede invocar (function calling) — ver aiAgent.js
 // para las declaraciones que se le exponen a Gemini. Cada una valida su entrada y devuelve
@@ -197,6 +198,14 @@ async function createReservationHold(args = {}) {
     }
 
     const created = await fb.createReservation(rec);
+
+    // Fire-and-forget: el correo es un canal, no la fuente de verdad (misma regla ya
+    // establecida en index.html) — nunca debe alargar la respuesta del bot ni, mucho menos,
+    // hacer fallar una reserva ya creada si el envío falla. Nunca esperar (await) esto acá.
+    emailService.sendReservationConfirmation({ code: created.code, email: created.email }).catch((err) => {
+      console.error(`[businessTools] No se pudo enviar el correo de confirmación de ${created.code}:`, err.code || err.message);
+    });
+
     return {
       ok: true,
       code: created.code,

@@ -559,6 +559,39 @@
   .type-tag.type-cita{background:rgba(182,96,60,0.16);color:var(--clay);}
   .recent-item .ri-left{display:flex;flex-direction:column;gap:5px;}
   .recent-item .ri-top{display:flex;align-items:center;gap:8px;}
+
+  /* ---------------- Chat web con IA ---------------- */
+  #chatRoot{position:fixed;right:20px;bottom:20px;z-index:85;display:flex;flex-direction:column-reverse;align-items:flex-end;gap:14px;}
+  .chat-launcher{width:56px;height:56px;border-radius:50%;background:var(--forest);color:#f5f0e6;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow);transition:transform .15s ease;flex-shrink:0;}
+  .chat-launcher:hover{transform:scale(1.06);}
+  .chat-launcher svg{width:25px;height:25px;}
+  .chat-panel{width:min(370px, calc(100vw - 40px));max-height:min(560px, calc(100vh - 120px));background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;}
+  .chat-panel-head{background:var(--forest);color:#f5f0e6;padding:16px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .chat-panel-title{font-family:'Fraunces',serif;font-weight:600;font-size:16px;}
+  .chat-panel-sub{font-size:12px;opacity:0.82;margin-top:2px;}
+  .chat-close{background:transparent;border:none;color:#f5f0e6;cursor:pointer;font-size:15px;line-height:1;padding:6px;opacity:0.85;}
+  .chat-close:hover{opacity:1;}
+  .chat-panel-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:180px;}
+  .chat-empty-hint{font-size:13.5px;color:var(--ink);opacity:0.6;text-align:center;margin:auto;padding:0 14px;}
+  .chat-bubble{max-width:84%;padding:10px 14px;border-radius:16px;font-size:13.5px;line-height:1.48;overflow-wrap:break-word;}
+  .chat-bubble a{color:inherit;text-decoration:underline;}
+  .chat-bubble-user{align-self:flex-end;background:var(--forest);color:#f5f0e6;border-bottom-right-radius:4px;}
+  .chat-bubble-bot{align-self:flex-start;background:var(--paper-2);color:var(--ink);border-bottom-left-radius:4px;}
+  .chat-typing{display:flex;gap:4px;padding:14px;align-self:flex-start;}
+  .chat-typing span{width:6px;height:6px;border-radius:50%;background:var(--ink);opacity:0.45;animation:chatTypingBounce 1.2s infinite ease-in-out;}
+  .chat-typing span:nth-child(2){animation-delay:.15s;}
+  .chat-typing span:nth-child(3){animation-delay:.3s;}
+  @keyframes chatTypingBounce{0%,60%,100%{transform:translateY(0);opacity:.45;}30%{transform:translateY(-4px);opacity:1;}}
+  @media (prefers-reduced-motion: reduce){ .chat-typing span{animation:none;} }
+  .chat-panel-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--card);}
+  .chat-panel-input input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:10px 16px;font-family:inherit;font-size:13.5px;background:var(--paper);color:var(--ink);}
+  .chat-panel-input input:focus-visible{outline:2px solid var(--clay);outline-offset:1px;}
+  .chat-panel-input button{width:40px;height:40px;padding:0;border-radius:50%;flex-shrink:0;}
+  .chat-panel-input button svg{width:17px;height:17px;}
+  @media (max-width:480px){
+    #chatRoot{right:12px;bottom:12px;}
+    .chat-panel{width:calc(100vw - 24px);}
+  }
 </style>
 
 <div class="demo-note"><div class="wrap"><span id="demoNote"></span></div></div>
@@ -605,6 +638,7 @@
 
 <main id="app"></main>
 <div id="modalRoot"></div>
+<div id="chatRoot"></div>
 
 <footer class="site-footer">
   <div class="wrap">
@@ -968,7 +1002,17 @@
     bkRVisitTime:{es:"Hora",en:"Time"},
     bkConfirmBtnVisit:{es:"Generar código de cita",en:"Generate visit code"},
     visitDoneLabel:{es:"Código de cita",en:"Visit code"},
-    visitDoneNote:{es:"Guarda este código: lo necesitas para consultar el estado de tu cita. Nuestro equipo la confirma manualmente por WhatsApp en las próximas horas.",en:"Save this code — you'll need it to check your visit status. Our team confirms it manually over WhatsApp within a few hours."}
+    visitDoneNote:{es:"Guarda este código: lo necesitas para consultar el estado de tu cita. Nuestro equipo la confirma manualmente por WhatsApp en las próximas horas.",en:"Save this code — you'll need it to check your visit status. Our team confirms it manually over WhatsApp within a few hours."},
+
+    chatLauncherLabel:{es:"Chatear con nosotros",en:"Chat with us"},
+    chatCloseLabel:{es:"Cerrar chat",en:"Close chat"},
+    chatTitle:{es:"Asistente Uso Inmobiliario",en:"Uso Inmobiliario Assistant"},
+    chatSubtitle:{es:"Respuestas automáticas, al instante",en:"Automated replies, instantly"},
+    chatEmptyHint:{es:"Pregúntanos por disponibilidad, precios o agenda una visita — te respondemos al instante.",en:"Ask us about availability, pricing, or book a visit — we reply instantly."},
+    chatInputPlaceholder:{es:"Escribe tu mensaje...",en:"Type your message..."},
+    chatSendLabel:{es:"Enviar",en:"Send"},
+    chatErrorGeneric:{es:"No pudimos enviar tu mensaje. Intenta de nuevo o escríbenos por WhatsApp.",en:"We couldn't send your message. Please try again or message us on WhatsApp."},
+    chatRateLimited:{es:"Has enviado muchos mensajes muy rápido. Espera un momento y vuelve a intentar.",en:"You've sent too many messages too quickly. Please wait a moment and try again."}
   };
   function t(key){ return STR[key][LANG]; }
   function fmtCOP(n){
@@ -1643,53 +1687,40 @@ var HERO_IMG = "media/hero.jpg";
   var PaymentProvider = { bank_transfer: ManualBankTransferProvider, cash: CashPaymentProvider };
 
   /* ---------------- Email transaccional de reserva ----------------
-     Misma idea de capas que PaymentProvider, para que ReservationService/BOOKING nunca
-     queden acoplados a un proveedor concreto de correo:
-       EmailService  -> decide QUÉ enviar (arma los datos; nunca genera el código ni
-                         recalcula precio — usa exactamente lo que ya trae `reservation`)
-       EmailTemplate -> construye el HTML del correo a partir de esos datos
-       EmailProvider -> hace la llamada real de envío
-     Sistema propio (no un proveedor de terceros tipo EmailJS): el envío real corre en un
-     Cloudflare Worker aparte (carpeta email-worker/ en la raíz del repo) que llama a Amazon
-     SES usando el dominio usoinmobiliario.com — dominio que ya estaba verificado en esa
-     cuenta AWS (su MX record ya apuntaba a inbound-smtp antes de este cambio). Las
-     credenciales de AWS viven SOLO como secretos de ese Worker — index.html nunca las ve,
-     nunca las guarda; solo le hace un fetch() con los datos ya armados. Ver
-     email-worker/README.md para el paso a paso de despliegue. Mientras
-     EMAIL_WORKER_CONFIG.url esté vacío, el envío falla de forma controlada sin romper la
-     reserva (mismo comportamiento de siempre, solo cambió QUIÉN hace el envío real). */
-  var EMAIL_WORKER_CONFIG = {
-    // Rellenar tras desplegar el Worker (ver email-worker/README.md):
-    //   url       -> la URL pública que imprime `npx wrangler deploy`
-    //   appSecret -> el mismo valor configurado con `wrangler secret put APP_SHARED_SECRET`
-    url: '',
-    appSecret: ''
-  };
+     EmailService decide QUÉ enviar (nunca genera el código ni recalcula precio — solo arma
+     {code, email} a partir de la reserva YA creada) y EmailProvider hace la llamada real.
+     El HTML del correo YA NO se construye acá — ahora lo arma emailService.js del lado del
+     servidor (mismo diseño, portado tal cual, ver whatsapp-assistant/src/emailService.js):
+     ese backend busca la reserva completa por código, así que reconstruir el HTML dos veces
+     (acá y allá) sería una copia que se puede desincronizar sin que nadie lo note, no una
+     capa útil. */
+  // Backend compartido por el chat web y el correo transaccional — el mismo servicio de
+  // Render que ya atiende el bot de WhatsApp (whatsapp-assistant/), ahora con rutas nuevas
+  // para estos dos canales (ver el plan de "chat web + correo gratis + middleware admin").
+  var BACKEND_BASE_URL = 'https://usoinmobiliario-whatsapp-bot.onrender.com';
+
+  // Reemplaza el Worker de Cloudflare + Amazon SES (bloqueado por depender de una cuenta AWS
+  // sin acceso confiable) — ahora es una ruta del mismo backend de Render, que envía por SMTP
+  // de Gmail con la cuenta real del negocio. El endpoint busca la reserva completa del lado
+  // del servidor por código y exige que el correo coincida con el guardado antes de enviar
+  // nada (nunca confía en datos sueltos del cliente) — por eso `email` va en el payload aunque
+  // antes no hacía falta.
   var EmailProvider = {
-    isConfigured: function(){
-      return !!EMAIL_WORKER_CONFIG.url;
-    },
+    isConfigured: function(){ return true; }, // el backend siempre existe; puede fallar con 'not-configured' si falta GMAIL_APP_PASSWORD ahí, ver emailService.js
     send: function(templateParams){
-      if(!EmailProvider.isConfigured()){
-        var err = new Error('email-provider-not-configured'); err.code = 'not-configured';
-        return Promise.reject(err);
-      }
       var payload = {
-        to_email: templateParams.to_email,
-        to_name: templateParams.to_name,
-        subject: templateParams.subject,
-        message_html: templateParams.message_html,
-        reservation_code: templateParams.reservation_code,
-        app_secret: EMAIL_WORKER_CONFIG.appSecret
+        code: templateParams.reservation_code,
+        email: templateParams.to_email,
+        lang: LANG
       };
-      return fetch(EMAIL_WORKER_CONFIG.url, {
+      return fetch(BACKEND_BASE_URL + '/email/reservation-confirmation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       }).then(function(res){
         if(!res.ok){
           return res.json().catch(function(){ return {}; }).then(function(data){
-            var err = new Error('email-worker-error'); err.code = (data && data.error) || ('http-'+res.status);
+            var err = new Error('email-send-error'); err.code = (data && data.error) || ('http-'+res.status);
             throw err;
           });
         }
@@ -1698,125 +1729,13 @@ var HERO_IMG = "media/hero.jpg";
     }
   };
 
-  var EmailTemplate = (function(){
-    var MONTHS_LONG = {
-      es:['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'],
-      en:['January','February','March','April','May','June','July','August','September','October','November','December']
-    };
-    // Fechas de estadía: solo fecha (sin hora) — se parsean como UTC para no arrastrar el
-    // desfase de la zona horaria del navegador de quien las mira (mismo criterio que ya usa
-    // nightsBetween en FirebaseDataProvider.js para estas mismas cadenas "YYYY-MM-DD").
-    function fmtLongDate(isoDateStr){
-      var p = isoDateStr.split('-');
-      var d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2]));
-      return d.getUTCDate()+' de '+MONTHS_LONG[LANG][d.getUTCMonth()]+' de '+d.getUTCFullYear();
-    }
-    // expiresAt sí es un instante real (epoch ms) — se muestra en hora de Colombia
-    // (Bogotá, UTC-5 todo el año, sin horario de verano) porque es la zona del negocio.
-    function fmtBogotaDateTime(epochMs){
-      try{
-        return new Date(epochMs).toLocaleString(LANG==='es'?'es-CO':'en-US', {
-          timeZone:'America/Bogota', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'
-        });
-      }catch(e){ return new Date(epochMs).toISOString(); }
-    }
-    function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-    // HTML de tabla clásica (nada de flex/grid ni JS ni fuentes externas obligatorias) para
-    // que se vea razonablemente bien en Gmail/Outlook/Apple Mail/móviles sin depender de
-    // soporte moderno de CSS en el cliente de correo.
-    function reservationCreatedHtml(res, categoryLabel){
-      var isEs = LANG === 'es';
-      var statusLine = BOOKING.reservationDisplayStatus(res);
-      var holdRow = (res.expiresAt && res.paymentStatus !== 'submitted') ? (
-        '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'HOLD válido hasta':'Hold valid until')+'</td>'
-        + '<td style="padding:6px 0;text-align:right;font-weight:700;">'+esc(fmtBogotaDateTime(res.expiresAt))+'</td></tr>'
-      ) : '';
-      var totalRow = (res.estTotal != null) ? (
-        '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Valor':'Total')+'</td>'
-        + '<td style="padding:6px 0;text-align:right;font-weight:700;">'+esc(fmtCOP(res.estTotal))+'</td></tr>'
-      ) : '';
-      // El método de pago suele elegirse justo DESPUÉS de este primer correo (ver el flujo
-      // del pedido: crear reserva -> enviar correo -> mostrar confirmación -> [ahí] elegir
-      // pago) — así que casi nunca hay un método definido todavía. Mostrar instrucciones
-      // bancarias reales aquí sería prematuro (ni siquiera se sabe si el cliente pagará por
-      // transferencia); en vez de inventar datos, se remite a la página, tal como permite
-      // explícitamente la sección 15 del pedido si no se incluyen datos bancarios.
-      var nextStepHtml = res.paymentMethod === 'bank_transfer'
-        ? (isEs?'Realiza el pago con los datos que se muestran en tu reserva y luego reporta el pago (con el comprobante) desde ahí o por WhatsApp.':'Pay using the details shown on your booking page, then report the payment (with proof) from there or via WhatsApp.')
-        : res.paymentMethod === 'cash'
-        ? (isEs?'El pago se realiza en efectivo de forma presencial, según las instrucciones de tu reserva.':'Payment is made in person, in cash, following the instructions on your booking page.')
-        : (isEs?'Entra a tu reserva para elegir cómo prefieres pagar (transferencia o efectivo) y ver las instrucciones.':'Open your booking to choose how you\'d like to pay (bank transfer or cash) and see the instructions.');
-
-      var manageUrl = (typeof location!=='undefined'?location.origin+location.pathname:'') + '#/mi-reserva?code=' + encodeURIComponent(res.code);
-      var waUrl = 'https://wa.me/573003848517?text=' + encodeURIComponent(isEs
-        ? ('Hola, tengo una pregunta sobre mi reserva '+res.code+'.')
-        : ('Hi, I have a question about my booking '+res.code+'.'));
-
-      return ''
-        + '<div style="background:#efe7d8;padding:24px 12px;font-family:Georgia,\'Times New Roman\',serif;color:#20241f;">'
-        + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#f5f0e6;border-radius:14px;overflow:hidden;">'
-        +   '<tr><td style="background:#33513f;padding:20px 28px;">'
-        +     '<div style="color:#f5f0e6;font-size:13px;letter-spacing:2px;text-transform:uppercase;">USO INMOBILIARIO</div>'
-        +     '<div style="color:#f5f0e6;font-size:20px;font-weight:700;margin-top:4px;">'+(isEs?'Reserva creada':'Booking created')+'</div>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:24px 28px 8px;">'
-        +     '<p style="margin:0 0 14px;font-size:15px;">'+(isEs?'Hola, ':'Hi ')+esc(res.name)+(isEs?'. Hemos registrado tu solicitud de reserva.':'. We\'ve registered your booking request.')+'</p>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:0 28px;">'
-        +     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e4d8c3;border-radius:12px;">'
-        +       '<tr><td style="padding:16px 20px;text-align:center;">'
-        +         '<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#9c7b3f;">'+(isEs?'Código de reserva':'Booking code')+'</div>'
-        +         '<div style="font-size:34px;font-weight:700;letter-spacing:4px;color:#33513f;margin-top:4px;">'+esc(res.code)+'</div>'
-        +       '</td></tr>'
-        +     '</table>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:20px 28px 4px;">'
-        +     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Apartamento':'Apartment')+'</td><td style="padding:6px 0;text-align:right;font-weight:700;">'+esc(res.unitLabel)+'</td></tr>'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Tipo':'Type')+'</td><td style="padding:6px 0;text-align:right;">'+esc(categoryLabel||'—')+'</td></tr>'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">Check-in</td><td style="padding:6px 0;text-align:right;">'+esc(fmtLongDate(res.checkin))+'</td></tr>'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">Check-out</td><td style="padding:6px 0;text-align:right;">'+esc(fmtLongDate(res.checkout))+'</td></tr>'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Noches':'Nights')+'</td><td style="padding:6px 0;text-align:right;">'+esc(res.nights)+'</td></tr>'
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Huéspedes':'Guests')+'</td><td style="padding:6px 0;text-align:right;">'+esc(res.guests)+'</td></tr>'
-        +       totalRow
-        +       '<tr><td style="padding:6px 0;color:#6b6b60;">'+(isEs?'Estado':'Status')+'</td><td style="padding:6px 0;text-align:right;font-weight:700;">'+esc(statusLine)+'</td></tr>'
-        +       holdRow
-        +     '</table>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:16px 28px;">'
-        +     '<div style="border-top:1px solid #b6603c33;padding-top:14px;font-size:13.5px;color:#6b6b60;text-transform:uppercase;letter-spacing:1px;">'+(isEs?'Siguiente paso':'Next step')+'</div>'
-        +     '<p style="margin:8px 0 0;font-size:14.5px;">'+esc(nextStepHtml)+'</p>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:8px 28px 24px;">'
-        +     '<a href="'+esc(manageUrl)+'" style="display:inline-block;background:#33513f;color:#f5f0e6;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;margin-right:8px;">'+(isEs?'Ver mi reserva':'View my booking')+'</a>'
-        +     '<a href="'+esc(waUrl)+'" style="display:inline-block;background:#e4d8c3;color:#20241f;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">WhatsApp</a>'
-        +   '</td></tr>'
-        +   '<tr><td style="padding:16px 28px;background:#e4d8c3;text-align:center;font-size:12px;color:#6b6b60;">'
-        +     'Uso Inmobiliario · Laureles, Medellín'
-        +   '</td></tr>'
-        + '</table>'
-        + '</div>';
-    }
-    return { reservationCreatedHtml: reservationCreatedHtml };
-  })();
-
   var EmailService = (function(){
-    // Nunca crea reservas, nunca confirma pagos, nunca toca disponibilidad/HOLD — solo arma
-    // el contenido a partir de una reserva YA creada y pide el envío (sección 24 del pedido).
+    // Nunca crea reservas, nunca confirma pagos, nunca toca disponibilidad/HOLD — solo pide
+    // el envío de una reserva YA creada. El backend busca el resto (nombre, fechas, precio,
+    // estado) por su cuenta a partir del código — acá no hace falta rearmar nada de eso.
     function sendReservationCreated(res){
       if(!res || res.type !== 'reserva' || !res.email) return Promise.resolve({skipped:true});
-      var category = ApartmentService.categoryExists(res.unitType) ? ApartmentService.getCategory(res.unitType) : null;
-      var categoryLabel = category ? category.catLabel[LANG] : '';
-      var html = EmailTemplate.reservationCreatedHtml(res, categoryLabel);
-      var subject = (LANG === 'es' ? 'Tu reserva ' : 'Your booking ') + res.code + (LANG === 'es' ? ' fue creada' : ' was created');
-      return EmailProvider.send({
-        to_email: res.email,
-        to_name: res.name,
-        subject: subject,
-        message_html: html,
-        reservation_code: res.code
-      });
+      return EmailProvider.send({ to_email: res.email, reservation_code: res.code });
     }
     return { sendReservationCreated: sendReservationCreated };
   })();
@@ -2891,6 +2810,164 @@ var HERO_IMG = "media/hero.jpg";
     };
   })();
 
+  /* ---------------- Chat web con IA ----------------
+     Mismo cerebro que el bot de WhatsApp (whatsapp-assistant/) — comparte assistantCore/
+     businessTools en el backend, solo cambia el canal de transporte (POST /chat/web/message
+     en vez del webhook de WhatsApp). `sessionId` es el equivalente de un número de teléfono
+     para este canal: un id opaco generado en el navegador y guardado en localStorage, nunca
+     validado como identidad real (igual que el backend ya trata la clave de conversación como
+     un string opaco, sin saber ni importarle qué canal la generó). */
+  var CHATWIDGET = (function(){
+    var SESSION_KEY = 'usoInmobiliario_chatSession_v1';
+    var HISTORY_KEY = 'usoInmobiliario_chatHistory_v1';
+    var CHAT_API_URL = BACKEND_BASE_URL + '/chat/web/message';
+    var MAX_HISTORY_STORED = 40;
+
+    var state = { open: false, sending: false, messages: [], memSessionId: null };
+
+    function getSessionId(){
+      try{
+        var id = localStorage.getItem(SESSION_KEY);
+        if(!id){
+          id = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+          localStorage.setItem(SESSION_KEY, id);
+        }
+        return id;
+      }catch(e){
+        // localStorage puede fallar (modo privado, cuota llena) — un id solo de memoria sigue
+        // permitiendo chatear en esta carga de página, simplemente no persiste al recargar.
+        if(!state.memSessionId) state.memSessionId = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        return state.memSessionId;
+      }
+    }
+
+    function loadHistory(){
+      try{
+        var raw = localStorage.getItem(HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+      }catch(e){ return []; }
+    }
+    function saveHistory(){
+      try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(state.messages.slice(-MAX_HISTORY_STORED))); }catch(e){}
+    }
+
+    // Misma convención ligera del backend (markup.js): *negrilla*, _cursiva_, ~tachado~. Se
+    // escapa el HTML PRIMERO (el texto es de la IA, nunca se confía en él) y solo después se
+    // aplican las etiquetas seguras — así una respuesta del modelo nunca puede inyectar HTML
+    // real, por más que el prompt ya le pida no hacerlo.
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function formatMessageHtml(text){
+      var out = escapeHtml(text);
+      out = out.replace(/\*(.+?)\*/g, '<strong>$1</strong>');
+      out = out.replace(/_(.+?)_/g, '<em>$1</em>');
+      out = out.replace(/~(.+?)~/g, '<s>$1</s>');
+      // El bot manda el link real de cada apartamento como texto plano (nunca Markdown) — se
+      // vuelve cliqueable acá, después de escapar, nunca antes.
+      out = out.replace(/(https?:\/\/[^\s&<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+      out = out.replace(/\n/g, '<br>');
+      return out;
+    }
+
+    function bubbleHtml(msg){
+      var cls = 'chat-bubble ' + (msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-bot');
+      return '<div class="'+cls+'">'+formatMessageHtml(msg.text)+'</div>';
+    }
+
+    function panelHtml(){
+      var body = state.messages.length
+        ? state.messages.map(bubbleHtml).join('')
+        : '<p class="chat-empty-hint">'+t('chatEmptyHint')+'</p>';
+      var typing = state.sending ? '<div class="chat-bubble chat-bubble-bot chat-typing"><span></span><span></span><span></span></div>' : '';
+      return ''
+        + '<div class="chat-panel" role="dialog" aria-label="'+t('chatTitle')+'">'
+        +   '<div class="chat-panel-head">'
+        +     '<div><div class="chat-panel-title">'+t('chatTitle')+'</div><div class="chat-panel-sub">'+t('chatSubtitle')+'</div></div>'
+        +     '<button type="button" class="chat-close" id="chatCloseBtn" aria-label="'+t('chatCloseLabel')+'">✕</button>'
+        +   '</div>'
+        +   '<div class="chat-panel-body" id="chatBody">'+body+typing+'</div>'
+        +   '<form class="chat-panel-input" id="chatForm">'
+        +     '<input type="text" id="chatInput" maxlength="1000" autocomplete="off" placeholder="'+t('chatInputPlaceholder')+'" '+(state.sending?'disabled':'')+' />'
+        +     '<button type="submit" class="btn btn-primary btn-icon" aria-label="'+t('chatSendLabel')+'" '+(state.sending?'disabled':'')+'>'
+        +       '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>'
+        +     '</button>'
+        +   '</form>'
+        + '</div>';
+    }
+
+    function launcherHtml(){
+      var icon = state.open
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2z"/></svg>';
+      return '<button type="button" id="chatLauncherBtn" class="chat-launcher" aria-label="'+t('chatLauncherLabel')+'" aria-expanded="'+(state.open?'true':'false')+'">'+icon+'</button>';
+    }
+
+    function render(){
+      var root = document.getElementById('chatRoot');
+      if(!root) return;
+      root.innerHTML = launcherHtml() + (state.open ? panelHtml() : '');
+      document.getElementById('chatLauncherBtn').addEventListener('click', toggle);
+      if(state.open){
+        var closeBtn = document.getElementById('chatCloseBtn');
+        if(closeBtn) closeBtn.addEventListener('click', toggle);
+        var form = document.getElementById('chatForm');
+        if(form) form.addEventListener('submit', onSubmit);
+        var body = document.getElementById('chatBody');
+        if(body) body.scrollTop = body.scrollHeight;
+        var input = document.getElementById('chatInput');
+        if(input && !state.sending) input.focus();
+      }
+    }
+
+    function toggle(){
+      state.open = !state.open;
+      render();
+    }
+
+    function onSubmit(e){
+      e.preventDefault();
+      var input = document.getElementById('chatInput');
+      var text = input.value.trim();
+      if(!text || state.sending) return;
+      input.value = '';
+      state.messages.push({role:'user', text: text});
+      state.sending = true;
+      saveHistory();
+      render();
+
+      fetch(CHAT_API_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sessionId: getSessionId(), text: text })
+      }).then(function(res){
+        return res.json().catch(function(){ return {}; }).then(function(data){ return {ok: res.ok, data: data}; });
+      }).then(function(result){
+        state.sending = false;
+        if(result.ok && result.data && result.data.reply){
+          state.messages.push({role:'assistant', text: result.data.reply});
+        } else {
+          var errKey = (result.data && result.data.error === 'rate-limited') ? 'chatRateLimited' : 'chatErrorGeneric';
+          state.messages.push({role:'assistant', text: t(errKey)});
+        }
+        saveHistory();
+        render();
+      }).catch(function(){
+        state.sending = false;
+        state.messages.push({role:'assistant', text: t('chatErrorGeneric')});
+        saveHistory();
+        render();
+      });
+    }
+
+    function mount(){
+      state.messages = loadHistory();
+      render();
+    }
+
+    return { mount: mount, render: render };
+  })();
+
   // Street View real del edificio (panoid real, mismo punto que las fotos que compartió el
   // dueño) — encuadre y zoom aprobados explícitamente tras varias iteraciones en vivo.
   // Se usa en el hero (primera sección visible al entrar).
@@ -3860,7 +3937,7 @@ var HERO_IMG = "media/hero.jpg";
   }
 
   document.querySelectorAll('.lang-toggle button').forEach(function(b){
-    b.addEventListener('click', function(){ LANG = b.getAttribute('data-lang'); applyStatic(); route(); if(BOOKING.isOpen()) BOOKING.render(); });
+    b.addEventListener('click', function(){ LANG = b.getAttribute('data-lang'); applyStatic(); route(); if(BOOKING.isOpen()) BOOKING.render(); CHATWIDGET.render(); });
   });
 
   // Menú móvil — en pantallas ≤860px .nav-links se oculta (ver CSS) y este botón hamburguesa
@@ -3881,6 +3958,7 @@ var HERO_IMG = "media/hero.jpg";
 
   applyStatic();
   route();
+  CHATWIDGET.mount();
 })();
 </script>
 <script type="module" src="firebase/FirebaseDataProvider.js?v=14"></script>
