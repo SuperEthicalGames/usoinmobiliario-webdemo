@@ -515,8 +515,13 @@ async function getDashboardSummary() {
 
   try {
     const visits = await listVisits();
+    // 'pendiente' (esperando que el admin la confirme) Y 'confirmada' (ya va a pasar de
+    // verdad) — antes solo entraba 'pendiente', así que una visita YA confirmada a futuro
+    // desaparecía de "Próximas visitas" justo cuando más importa mostrarla (bug real: se
+    // encontró una visita confirmada para 2027-01-10 que el dashboard ocultaba por completo).
+    // 'rechazada'/'cancelada'/'completada' quedan fuera — ya no van a pasar o ya pasaron.
     summary.upcomingVisits = visits
-      .filter((v) => v.status === 'pendiente' && v.visitDate && v.visitDate >= todayIso)
+      .filter((v) => (v.status === 'pendiente' || v.status === 'confirmada') && v.visitDate && v.visitDate >= todayIso)
       .sort((a, b) => (a.visitDate + a.visitTime).localeCompare(b.visitDate + b.visitTime))
       .slice(0, 10);
   } catch (err) {
