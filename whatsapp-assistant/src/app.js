@@ -28,7 +28,7 @@ app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 // (esta última todavía no existe) — /admin/api/* usa su PROPIO origen permitido, nunca este.
 //
 // El header Origin que manda un navegador real es SOLO esquema+host(+puerto) — NUNCA incluye
-// path (confirmado probando el preflight real: siteBaseUrl trae "/usoinmobiliariodemo" al
+// path (confirmado probando el preflight real: siteBaseUrl trae "/usoinmobiliario-webdemo" al
 // final porque así arma los links a cada apartamento, pero comparar contra eso literal habría
 // hecho que un navegador real rechazara esta respuesta por no calzar con su Origin real).
 const SITE_ORIGIN = new URL(config.siteBaseUrl).origin;

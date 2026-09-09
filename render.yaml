@@ -17,7 +17,7 @@ services:
       - key: FIREBASE_DATABASE_URL
         value: https://usoinmobiliario-c8e83-default-rtdb.firebaseio.com
       - key: SITE_BASE_URL
-        value: https://superethicalgames.github.io/usoinmobiliariodemo
+        value: https://superethicalgames.github.io/usoinmobiliario-webdemo
       - key: LLM_PROVIDER
         value: gemini
       - key: GEMINI_MODEL

@@ -73,7 +73,7 @@ const config = {
   // URL pública donde vive el sitio (index.html, Firebase Hosting) — usada para armar el link
   // real de cada apartamento (misma ruta hash que ya existe en el sitio: #/unidad/:tipo?u=:num,
   // ver route() en index.html). Sin barra final.
-  siteBaseUrl: optional('SITE_BASE_URL', 'https://superethicalgames.github.io/usoinmobiliariodemo'),
+  siteBaseUrl: optional('SITE_BASE_URL', 'https://superethicalgames.github.io/usoinmobiliario-webdemo'),
 
   // Duración del HOLD — debe coincidir EXACTAMENTE con HOLD_DURATION_MS de index.html y
   // DateUtil.HoldDurationMs de Unity. Un solo negocio, una sola regla, en tres lugares.
