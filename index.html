@@ -2635,7 +2635,7 @@ var HERO_IMG = "media/hero.jpg";
       // ansiedad sin ningún efecto real, así que la tarjeta de cuenta regresiva desaparece.
       var holdHtml = (!isVisit && res.expiresAt && res.paymentStatus !== 'submitted') ? (
           '<div class="hold-card" id="holdCard"><span class="hc-label">'+t('holdTitle')+'</span>'
-          + '<div class="hc-unit">'+res.unitLabel+' · '+res.checkin+' → '+res.checkout+'</div>'
+          + '<div class="hc-unit">'+escHtml(res.unitLabel)+' · '+escHtml(res.checkin)+' → '+escHtml(res.checkout)+'</div>'
           + '<div class="hc-timer-label">'+t('holdTimeLeft')+'</div>'
           + '<div class="hc-timer" id="holdTimer">--:--</div>'
           + '<p class="hc-note">'+t('holdNote')+'</p></div>'
@@ -3344,13 +3344,13 @@ var HERO_IMG = "media/hero.jpg";
     var isVisit = res.type === 'cita';
     var statusLabel = BOOKING.reservationDisplayStatus(res);
     var showCountdown = !isVisit && res.expiresAt && res.paymentStatus !== 'submitted' && !BOOKING.isHoldExpired(res);
-    var detailRows = '<div class="bk-review-row"><span class="k">'+(isVisit?t('visitDoneLabel'):t('bkDoneLabel'))+'</span><span class="v">'+res.code+'</span></div>'
-      + '<div class="bk-review-row"><span class="k">'+t('bkRUnit')+'</span><span class="v">'+res.unitLabel+'</span></div>';
+    var detailRows = '<div class="bk-review-row"><span class="k">'+(isVisit?t('visitDoneLabel'):t('bkDoneLabel'))+'</span><span class="v">'+BOOKING.escHtml(res.code)+'</span></div>'
+      + '<div class="bk-review-row"><span class="k">'+t('bkRUnit')+'</span><span class="v">'+BOOKING.escHtml(res.unitLabel)+'</span></div>';
     if(isVisit){
-      detailRows += '<div class="bk-review-row"><span class="k">'+t('bkRVisitDate')+'</span><span class="v">'+res.visitDate+'</span></div>'
-        + '<div class="bk-review-row"><span class="k">'+t('bkRVisitTime')+'</span><span class="v">'+res.visitTime+'</span></div>';
+      detailRows += '<div class="bk-review-row"><span class="k">'+t('bkRVisitDate')+'</span><span class="v">'+BOOKING.escHtml(res.visitDate)+'</span></div>'
+        + '<div class="bk-review-row"><span class="k">'+t('bkRVisitTime')+'</span><span class="v">'+BOOKING.escHtml(res.visitTime)+'</span></div>';
     } else {
-      detailRows += '<div class="bk-review-row"><span class="k">'+t('bkRDates')+'</span><span class="v">'+res.checkin+' → '+res.checkout+'</span></div>'
+      detailRows += '<div class="bk-review-row"><span class="k">'+t('bkRDates')+'</span><span class="v">'+BOOKING.escHtml(res.checkin)+' → '+BOOKING.escHtml(res.checkout)+'</span></div>'
         + '<div class="bk-review-row"><span class="k">'+(res.nights===1?t('bkNight'):t('bkNights'))+'</span><span class="v">'+res.nights+'</span></div>'
         + '<div class="bk-review-row"><span class="k">'+t('bkRGuests')+'</span><span class="v">'+res.guests+'</span></div>'
         + (res.estTotal!=null ? '<div class="bk-review-row"><span class="k">'+t('bkRTotal')+'</span><span class="v">'+fmtCOP(res.estTotal)+'</span></div>' : '');
@@ -3485,9 +3485,9 @@ var HERO_IMG = "media/hero.jpg";
         recentWrap.innerHTML = '<div class="recent-list"><h4>'+t('recentTitle')+'</h4>'
           + all.slice(0,5).map(function(r){
               var isVisit = r.type === 'cita';
-              var meta = isVisit ? (r.visitDate+' · '+r.visitTime) : r.checkin;
-              return '<a class="recent-item" href="#/mi-reserva?code='+r.code+'">'
-                + '<span class="ri-left"><span class="ri-top"><span class="type-tag type-'+(isVisit?'cita':'reserva')+'">'+(isVisit?t('typeTagCita'):t('typeTagReserva'))+'</span><span class="ri-code">'+r.code+'</span></span><span class="ri-meta">'+r.unitLabel+' · '+meta+'</span></span>'
+              var meta = isVisit ? (BOOKING.escHtml(r.visitDate)+' · '+BOOKING.escHtml(r.visitTime)) : BOOKING.escHtml(r.checkin);
+              return '<a class="recent-item" href="#/mi-reserva?code='+encodeURIComponent(r.code)+'">'
+                + '<span class="ri-left"><span class="ri-top"><span class="type-tag type-'+(isVisit?'cita':'reserva')+'">'+(isVisit?t('typeTagCita'):t('typeTagReserva'))+'</span><span class="ri-code">'+BOOKING.escHtml(r.code)+'</span></span><span class="ri-meta">'+BOOKING.escHtml(r.unitLabel)+' · '+meta+'</span></span>'
                 + '</a>';
             }).join('')
           + '</div>';
@@ -3828,6 +3828,13 @@ var HERO_IMG = "media/hero.jpg";
 
   function route(){
     PANO.dispose();
+    // El modal de reserva vive en #modalRoot, FUERA de #app (route() solo reemplaza #app) — sin
+    // cerrarlo acá, navegar con atrás/adelante o editando el hash a mano mientras el modal está
+    // abierto (con un HOLD de 15 min corriendo, o una verificación de disponibilidad en curso)
+    // lo dejaba encima de la página nueva, desconectado de lo que el usuario cree estar viendo.
+    // Antes solo el link "Consultar esta reserva más tarde" llamaba BOOKING.close() a propósito;
+    // cualquier otra forma de navegar lo dejaba huérfano. Bug real encontrado en auditoría.
+    if(BOOKING.isOpen()) BOOKING.close();
     if(galResizeHandler){ window.removeEventListener('resize', galResizeHandler); galResizeHandler = null; }
     var hash = location.hash || '#/';
     var hashBody = hash.replace(/^#\/?/, '');

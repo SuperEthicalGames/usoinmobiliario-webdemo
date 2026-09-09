@@ -23,7 +23,17 @@ function nightsBetween(checkinIso, checkoutIso) {
 }
 
 function isValidIsoDate(iso) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(iso)) && !Number.isNaN(parseIsoDate(iso).getTime());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return false;
+  const d = parseIsoDate(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  // Date.UTC no rechaza un día fuera de rango (Date.UTC(2026,1,30) para "30 de febrero" no
+  // da NaN, lo normaliza solo a marzo 2) — round-trip contra el mismo objeto Date para
+  // detectar ese desborde en vez de solo chequear NaN. Bug real encontrado en auditoría: sin
+  // esto, una fecha con día inválido pasaba la validación y quedaba guardada tal cual
+  // ("2026-02-30") mientras nightsBetween/precio/disponibilidad la trataban como otra fecha
+  // real (marzo 2) — el registro mostraría una fecha y bloquearía/cobraría otra.
+  const [y, m, day] = String(iso).split('-').map(Number);
+  return d.getUTCFullYear() === y && d.getUTCMonth() === m - 1 && d.getUTCDate() === day;
 }
 
 // "Hoy" en la zona horaria del negocio (Bogotá, UTC-5 fijo, sin horario de verano) — mismo

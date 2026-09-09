@@ -17,6 +17,14 @@ firebase.init();
 conversationStore.startCleanupLoop();
 
 const app = express();
+// Render (como cualquier PaaS) pone la app detrás de su propio proxy/load balancer — sin
+// decirle a Express que confíe en ESE primer salto, req.ip devuelve la IP del proxy, la MISMA
+// para todas las visitas reales, en vez de la del visitante (que sí llega en X-Forwarded-For).
+// Bug real encontrado en auditoría: chatLimiter (abajo) usa req.ip por defecto para el límite
+// de 30 peticiones/10min — sin esto, ese límite terminaba compartido por TODO el sitio en vez
+// de ser por visitante, y un puñado de usuarios concurrentes bastaba para que /chat/web/message
+// le devolviera 429 a cualquiera, la denegación de servicio que el rate limit debía evitar.
+app.set('trust proxy', 1);
 // Captura el body crudo (bytes exactos) además de parsearlo — necesario para verificar la
 // firma HMAC de Meta (whatsapp.verifySignature), que debe calcularse sobre el body TAL CUAL
 // llegó, no sobre JSON.stringify(req.body) (el reserializado no siempre coincide byte a byte).

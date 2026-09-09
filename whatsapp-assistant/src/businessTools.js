@@ -114,6 +114,7 @@ async function checkAvailabilityTool({ typeKey, num, checkin, checkout, guests }
       return { ok: false, error: 'Fechas inválidas. Formato AAAA-MM-DD, checkout después de checkin.' };
     }
     const apt = await fb.getApartment(typeKey, num);
+    if (!apt) return { ok: false, error: 'No existe ese apartamento.' };
     if (!isUnitBookable(apt)) return { ok: true, available: false, reason: 'unit_not_bookable' };
     const result = await fb.checkAvailability(apt.typeKey, apt.num, checkin, checkout);
     if (!result.available || !validators.isPositiveInt(guests)) return { ok: true, ...result };

@@ -136,7 +136,7 @@
       "$unitKey": {
         "$date": {
           ".read": true,
-          ".write": "auth != null || !data.exists() || (root.child('unitBookings/'+$unitKey+'/'+data.val()+'/expiresAt').val() < now && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/paymentStatus').val() != 'submitted')",
+          ".write": "auth != null || !data.exists() || (root.child('unitBookings/'+$unitKey+'/'+data.val()+'/status').val() == 'pendiente' && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/expiresAt').val() < now && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/paymentStatus').val() != 'submitted')",
           ".validate": "newData.isString()"
         }
       }

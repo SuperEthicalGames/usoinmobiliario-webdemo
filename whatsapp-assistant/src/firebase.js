@@ -256,6 +256,20 @@ async function claimSlotAtomically(unitKey, slotKey, code) {
   return result.committed;
 }
 
+// Liberar SOLO si el nodo todavía es de este código — mismo criterio de "todo o nada" que
+// claimNightAtomically/claimSlotAtomically, pero para el camino inverso. Sin este chequeo
+// (bug real encontrado en auditoría), un reject/cancel duplicado sobre el mismo code (doble
+// clic, o un reintento de red tras una respuesta lenta) volvía a poner en null las mismas
+// noches/turno en su segunda pasada — si en el intervalo alguien más ya las había reclamado
+// legítimamente para OTRA reserva, ese segundo reject les borraba el cupo sin ningún aviso ni
+// error, produciendo un choque de fechas real que el resto del archivo existe para evitar.
+async function releaseNightIfOwned(unitKey, night, code) {
+  await dbTransaction(`bookedNights/${unitKey}/${night}`, (current) => (current === code ? null : undefined));
+}
+async function releaseSlotIfOwned(unitKey, slotKey, code) {
+  await dbTransaction(`bookedVisitSlots/${unitKey}/${slotKey}`, (current) => (current === code ? null : undefined));
+}
+
 async function releaseNights(unitKey, nights) {
   const updates = {};
   for (const n of nights) updates[`bookedNights/${unitKey}/${n}`] = null;
@@ -393,20 +407,27 @@ async function setReservationStatus(code, status) {
 
   const updates = { [`${pathFor(rec.type)}/${code}/status`]: status };
   const isGeneralVisit = rec.type === 'cita' && rec.appointmentType === 'general_visit';
+  const shouldRelease = !isGeneralVisit && rec.unitType && rec.unitNum && (status === 'rechazada' || status === 'cancelada');
   if (!isGeneralVisit && rec.unitType && rec.unitNum) {
     const unitKey = unitKeyOf(rec.unitType, rec.unitNum);
     updates[`unitBookings/${unitKey}/${code}/status`] = status;
-    if (status === 'rechazada' || status === 'cancelada') {
+    await dbUpdate(updates);
+    // Liberar noches/turno DESPUÉS del update de status, y solo si siguen siendo de este
+    // code — ver releaseNightIfOwned/releaseSlotIfOwned arriba, así un reject/cancel
+    // duplicado no le borra el cupo a una reserva distinta que ya reclamó esas mismas fechas.
+    if (shouldRelease) {
+      const unitKeyForRelease = unitKeyOf(rec.unitType, rec.unitNum);
       if (rec.type === 'reserva') {
         for (const n of nightsBetween(rec.checkin, rec.checkout)) {
-          updates[`bookedNights/${unitKey}/${n}`] = null;
+          await releaseNightIfOwned(unitKeyForRelease, n, code);
         }
       } else {
-        updates[`bookedVisitSlots/${unitKey}/${rec.visitDate}_${rec.visitTime}`] = null;
+        await releaseSlotIfOwned(unitKeyForRelease, `${rec.visitDate}_${rec.visitTime}`, code);
       }
     }
+  } else {
+    await dbUpdate(updates);
   }
-  await dbUpdate(updates);
   return getReservationByCode(code);
 }
 const confirmReservation = (code) => setReservationStatus(code, 'confirmada');
@@ -418,6 +439,13 @@ async function setPaymentVerification(code, paymentStatus) {
   const rec = await getReservationByCode(code);
   if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
   if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'invalid'; throw e; }
+  // setReservationStatus nunca toca paymentStatus al rechazar/cancelar (bug relacionado
+  // encontrado en la misma auditoría) — sin este guard, se podía "verificar"/"rechazar" el
+  // pago de una reserva que ya no existe en la práctica, y esa reserva muerta se quedaba
+  // apareciendo para siempre en "pagos por verificar" del dashboard/Pagos.
+  if (rec.status === 'rechazada' || rec.status === 'cancelada') {
+    const e = new Error('reservation-not-active'); e.code = 'invalid'; throw e;
+  }
   const unitKey = unitKeyOf(rec.unitType, rec.unitNum);
   const updates = {
     [`${pathFor('reserva')}/${code}/paymentStatus`]: paymentStatus,
@@ -507,7 +535,12 @@ async function getDashboardSummary() {
       if (r.status === 'pendiente' && r.expiresAt && r.paymentStatus !== 'submitted' && r.expiresAt >= nowMs) {
         summary.activeHolds++;
       }
-      if (r.paymentStatus === 'submitted') summary.pendingPaymentVerifications++;
+      // setReservationStatus no limpia paymentStatus al rechazar/cancelar — sin excluir esos
+      // dos estados acá, una reserva ya muerta con un pago reportado antes de rechazarse se
+      // quedaba contando como "pago por verificar" para siempre (bug real encontrado en
+      // auditoría, mismo motivo por el que setPaymentVerification ahora bloquea actuar sobre
+      // una reserva rechazada/cancelada).
+      if (r.paymentStatus === 'submitted' && r.status !== 'rechazada' && r.status !== 'cancelada') summary.pendingPaymentVerifications++;
     }
   } catch (err) {
     console.error('[firebase] getDashboardSummary: no se pudieron cargar reservas', err);
