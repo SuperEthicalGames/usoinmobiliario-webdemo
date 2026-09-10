@@ -25,11 +25,20 @@ const AUTH_ERROR_STATUS = {
   'auth/invalid-password': 400,
   'auth/weak-password': 400,
 };
+// Códigos que son errores del PEDIDO (400), no fallas del servidor (500) — cualquier código
+// nuevo que se lance con e.code = '<algo-descriptivo>' (en vez del genérico 'invalid') tiene
+// que sumarse acá, si no cae al 500 por defecto de abajo y se loguea como si fuera una falla
+// real (ver el bug encontrado con 'reservation-not-active', que por esto mismo nunca llegaba
+// al panel con su código propio).
+const CLIENT_ERROR_CODES = new Set([
+  'invalid', 'not-a-reservation', 'not-cash-payment', 'reservation-not-active',
+  'reservation-not-confirmed', 'already-checked-in', 'not-checked-in-yet', 'already-checked-out',
+]);
 function asyncHandler(fn) {
   return (req, res) => fn(req, res).catch((err) => {
     const status = AUTH_ERROR_STATUS[err.code]
       || (err.code === 'not-found' ? 404
-      : err.code === 'invalid' || err.code === 'not-a-reservation' || err.code === 'not-cash-payment' ? 400
+      : CLIENT_ERROR_CODES.has(err.code) ? 400
       : err.code === 'conflict' ? 409
       : 500);
     if (status === 500) console.error(`[adminRoutes] ${req.method} ${req.originalUrl}:`, err);
@@ -118,6 +127,18 @@ router.post('/reservations', asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
+// --- Check-in / check-out real — registrado ANTES de /records/:code/:action a propósito:
+// Express matchea rutas en orden de registro, y ese comodín de abajo acepta CUALQUIER string
+// como :action (cae a 400 'invalid-action' recién DENTRO del handler) — si estas dos rutas más
+// específicas quedaran después, nunca se alcanzarían (bug real encontrado probando en vivo:
+// "check-in" llegaba como :action al comodín en vez de a esta ruta). ---
+router.post('/records/:code/check-in', asyncHandler(async (req, res) => {
+  res.json(await fb.checkInReservation(req.params.code.toUpperCase()));
+}));
+router.post('/records/:code/check-out', asyncHandler(async (req, res) => {
+  res.json(await fb.checkOutReservation(req.params.code.toUpperCase()));
+}));
+
 // --- Confirmar / rechazar / cancelar / completar — vale para reservas Y citas por igual, es
 // la misma máquina de estados (setReservationStatus ya distingue el tipo internamente). ---
 const STATUS_ACTIONS = {
@@ -176,6 +197,75 @@ router.post('/payments/:code/reject', asyncHandler(async (req, res) => {
 }));
 router.post('/payments/:code/register-cash', asyncHandler(async (req, res) => {
   res.json(await fb.registerCashPayment(req.params.code.toUpperCase()));
+}));
+
+// --- Contratos ---
+router.get('/contracts', asyncHandler(async (_req, res) => {
+  res.json(await fb.listContracts());
+}));
+router.post('/contracts', asyncHandler(async (req, res) => {
+  const { unitType, unitNum, unitLabel, tenantName, startDate, endDate, monthlyRent } = req.body || {};
+  const missing = [];
+  if (!unitType || !unitNum) missing.push('apartamento');
+  if (!tenantName || !String(tenantName).trim()) missing.push('nombre del inquilino');
+  if (!startDate || !endDate) missing.push('fecha de inicio/fin');
+  if (!monthlyRent || Number(monthlyRent) <= 0) missing.push('renta mensual');
+  if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
+  const created = await fb.createContract({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, createdBy: req.adminUser.email });
+  res.status(201).json(created);
+}));
+const CONTRACT_STATUSES = new Set(['activo', 'finalizado', 'cancelado']);
+router.post('/contracts/:code/status', asyncHandler(async (req, res) => {
+  const { status } = req.body || {};
+  if (!CONTRACT_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
+  res.json(await fb.setContractStatus(req.params.code.toUpperCase(), status));
+}));
+
+// --- Aseo ---
+router.get('/cleaning', asyncHandler(async (_req, res) => {
+  res.json(await fb.listCleaningTasks());
+}));
+router.post('/cleaning', asyncHandler(async (req, res) => {
+  const { unitType, unitNum, unitLabel, scheduledDate } = req.body || {};
+  const missing = [];
+  if (!unitType || !unitNum) missing.push('apartamento');
+  if (!scheduledDate) missing.push('fecha programada');
+  if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
+  const created = await fb.createCleaningTask({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}` });
+  res.status(201).json(created);
+}));
+const CLEANING_STATUSES = new Set(['pendiente', 'en-progreso', 'completado']);
+router.post('/cleaning/:code/status', asyncHandler(async (req, res) => {
+  const { status } = req.body || {};
+  if (!CLEANING_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
+  res.json(await fb.setCleaningStatus(req.params.code.toUpperCase(), status));
+}));
+
+// --- Mantenimiento ---
+router.get('/maintenance', asyncHandler(async (_req, res) => {
+  res.json(await fb.listMaintenanceTickets());
+}));
+router.post('/maintenance', asyncHandler(async (req, res) => {
+  const { unitType, unitNum, unitLabel, title } = req.body || {};
+  const missing = [];
+  if (!unitType || !unitNum) missing.push('apartamento');
+  if (!title || !String(title).trim()) missing.push('título');
+  if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
+  const created = await fb.createMaintenanceTicket({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, reportedBy: req.adminUser.email });
+  res.status(201).json(created);
+}));
+const MAINTENANCE_STATUSES = new Set(['abierto', 'en-progreso', 'resuelto']);
+router.post('/maintenance/:code/status', asyncHandler(async (req, res) => {
+  const { status } = req.body || {};
+  if (!MAINTENANCE_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
+  res.json(await fb.setMaintenanceStatus(req.params.code.toUpperCase(), status));
+}));
+
+// --- Tráfico del sitio público (solo lectura acá — la escritura la hace /track/pageview en
+// app.js, público y sin requireAdminAuth, ver ahí el porqué). ---
+router.get('/site-traffic', asyncHandler(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90);
+  res.json(await fb.getSiteTraffic(days));
 }));
 
 module.exports = router;

@@ -1253,13 +1253,19 @@ var HERO_IMG = "media/hero.jpg";
 
     // El estado que ve el visitante (disponible/en-uso/reservado) no puede seguir siendo un
     // campo manual desconectado de las reservas reales — se recalcula contra las reservas
-    // CONFIRMADAS de esa unidad (una "pendiente" nunca marca la unidad ocupada, solo
-    // bloquea esas fechas puntuales, ver createReservation), igual que FirebaseDataProvider.
+    // reales de esa unidad, igual que FirebaseDataProvider. Un HOLD 'pendiente' vigente
+    // (todavía no vencido, ver isHoldExpired) cuenta igual que una confirmada — el cliente ya
+    // está a mitad de una reserva real, no hace falta esperar a que un admin la confirme a
+    // mano para que el resto de visitantes lo vea reflejado (bug real reportado: "el sitio no
+    // actualiza el estado en el flujo del cliente"). Rechazada/cancelada o un HOLD ya vencido
+    // nunca cuentan, para no dejar la unidad "atascada" como ocupada tras un abandono.
     function effectiveStatus(typeKey, num, rawStatus){
       var today = isoLocal(new Date());
       var hasActive = false, hasFuture = false;
       loadReservations().forEach(function(r){
-        if(r.type !== 'reserva' || r.status !== 'confirmada' || r.unitType !== typeKey || r.unitNum !== num) return;
+        if(r.type !== 'reserva' || r.unitType !== typeKey || r.unitNum !== num) return;
+        var isLiveHold = r.status === 'pendiente' && !isHoldExpired(r);
+        if(r.status !== 'confirmada' && !isLiveHold) return;
         if(r.checkin <= today && today < r.checkout) hasActive = true;
         else if(r.checkin > today) hasFuture = true;
       });
@@ -1698,6 +1704,24 @@ var HERO_IMG = "media/hero.jpg";
   // Render que ya atiende el bot de WhatsApp (whatsapp-assistant/), ahora con rutas nuevas
   // para estos dos canales (ver el plan de "chat web + correo gratis + middleware admin").
   var BACKEND_BASE_URL = 'https://usoinmobiliario-whatsapp-bot.onrender.com';
+
+  // Conteo de tráfico del sitio para el panel de analíticas (usoinmobiliario-middleware) —
+  // SOLO un contador agregado por día y por página en el backend (ver
+  // whatsapp-assistant/src/firebase.js:recordPageview): ni cookies, ni IP, ni ningún
+  // identificador de visitante viajan en este POST, así que no hay nada que desactivar con
+  // Do Not Track para cumplir su espíritu — igual se respeta por si acaso. keepalive:true para
+  // que el conteo no se pierda si el usuario ya está navegando a la página siguiente cuando el
+  // POST todavía no salió; fire-and-forget real (nunca bloquea ni rompe la navegación si el
+  // backend está dormido/caído, a diferencia del chat que sí necesita avisar del error).
+  function trackPageview(path){
+    try{
+      if(navigator.doNotTrack === '1') return;
+      fetch(BACKEND_BASE_URL + '/track/pageview', {
+        method: 'POST', keepalive: true, headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ path: path || '/' })
+      }).catch(function(){});
+    }catch(e){ /* nunca debe romper la navegación real */ }
+  }
 
   // Reemplaza el Worker de Cloudflare + Amazon SES (bloqueado por depender de una cuenta AWS
   // sin acceso confiable) — ahora es una ruta del mismo backend de Render, que envía por SMTP
@@ -3880,6 +3904,7 @@ var HERO_IMG = "media/hero.jpg";
     }
 
     app.innerHTML = html;
+    trackPageview('/' + pathBody);
     document.querySelectorAll('.nav-links a, .mobile-nav a').forEach(function(a){
       a.classList.toggle('is-active', a.getAttribute('data-nav') === navActive);
     });

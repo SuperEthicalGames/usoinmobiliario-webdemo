@@ -220,15 +220,28 @@ async function checkAvailability(typeKey, num, checkinIso, checkoutIso) {
 }
 
 // Estado EFECTIVO de un apartamento (disponible/en-uso/reservado) — puerto de
-// AvailabilityService.EffectiveStatus. Solo cuenta reservas CONFIRMADAS.
+// AvailabilityService.EffectiveStatus.
+//
+// ANTES: solo contaba reservas CONFIRMADAS — una reserva recién creada por un cliente real
+// (pendiente, con su HOLD de 15 min todavía corriendo) no cambiaba nada acá, así que el
+// apartamento seguía viéndose "disponible" en el sitio y en el panel mientras el cliente ya
+// estaba a mitad de una reserva real y el admin no la hubiera confirmado a mano todavía.
+// Bug real reportado: "el sistema no actualiza el estado en el flujo del cliente". Ahora un
+// HOLD 'pendiente' vigente (no vencido, ver isHoldExpired) cuenta exactamente igual que una
+// confirmada — el estado cambia en cuanto el cliente crea la reserva, no cuando el admin la
+// aprueba. Uno rechazado/cancelado o un HOLD ya vencido nunca cuenta (mismo criterio de
+// siempre), así que un abandono no deja el apartamento "atascado" como ocupado.
 function effectiveStatus(apartment, unitBookings, todayIso) {
   if (!apartment) return null;
   const bookings = Object.values(unitBookings || {});
   if (bookings.length === 0) return apartment.status;
   let hasActive = false;
   let hasFuture = false;
+  const nowMs = nowEpochMs();
   for (const b of bookings) {
-    if (!b || b.status !== 'confirmada' || b.type !== 'reserva') continue;
+    if (!b || b.type !== 'reserva') continue;
+    const isLiveHold = b.status === 'pendiente' && !isHoldExpired(b, nowMs);
+    if (b.status !== 'confirmada' && !isLiveHold) continue;
     if (b.checkin <= todayIso && todayIso < b.checkout) hasActive = true;
     else if (b.checkin > todayIso) hasFuture = true;
   }
@@ -444,7 +457,11 @@ async function setPaymentVerification(code, paymentStatus) {
   // pago de una reserva que ya no existe en la práctica, y esa reserva muerta se quedaba
   // apareciendo para siempre en "pagos por verificar" del dashboard/Pagos.
   if (rec.status === 'rechazada' || rec.status === 'cancelada') {
-    const e = new Error('reservation-not-active'); e.code = 'invalid'; throw e;
+    // BUG REAL preexistente (encontrado al agregar check-in/check-out con el mismo mecanismo):
+    // .code quedaba en 'invalid' genérico en vez de 'reservation-not-active' — el panel YA
+    // tiene un mensaje específico para ese código exacto (api.ts, API_ERROR_MESSAGES), pero
+    // nunca podía dispararse porque el backend jamás mandaba ese string, solo 'invalid'.
+    const e = new Error('reservation-not-active'); e.code = 'reservation-not-active'; throw e;
   }
   const unitKey = unitKeyOf(rec.unitType, rec.unitNum);
   const updates = {
@@ -593,6 +610,161 @@ async function setAdminUserDisabled(uid, disabled) {
   return { uid: user.uid, email: user.email, disabled: user.disabled, createdAt: user.metadata.creationTime, lastSignInAt: user.metadata.lastSignInTime || null };
 }
 
+// --- Contratos (arriendo formal — cubre estadías largas que van más allá de una reserva
+// corta con HOLD; el mismo apartamento puede tener reservas Y un contrato activo, ninguno de
+// los dos bloquea al otro automáticamente, es el admin quien concilia fechas a mano). ---
+
+async function createContract(data) {
+  const code = generateCode();
+  const rec = {
+    code,
+    unitType: data.unitType, unitNum: data.unitNum, unitLabel: data.unitLabel,
+    tenantName: String(data.tenantName || '').trim(),
+    tenantPhone: String(data.tenantPhone || '').trim(),
+    tenantEmail: String(data.tenantEmail || '').trim(),
+    startDate: data.startDate, endDate: data.endDate,
+    monthlyRent: Number(data.monthlyRent) || 0,
+    depositAmount: Number(data.depositAmount) || 0,
+    documentUrl: data.documentUrl ? String(data.documentUrl).trim() : '',
+    notes: data.notes ? String(data.notes).trim() : '',
+    status: 'activo',
+    createdAt: new Date().toISOString(),
+    createdBy: data.createdBy || '',
+  };
+  await dbSet(`contracts/${code}`, rec);
+  return rec;
+}
+async function listContracts() {
+  const snap = await dbGet('contracts');
+  return Object.values(snap.val() || {});
+}
+async function setContractStatus(code, status) {
+  const snap = await dbGet(`contracts/${code}`);
+  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  await dbSet(`contracts/${code}/status`, status);
+  return { ...snap.val(), status };
+}
+
+// --- Aseo (tareas de limpieza de turnover — entre huéspedes) ---
+
+async function createCleaningTask(data) {
+  const code = generateCode();
+  const rec = {
+    code,
+    unitType: data.unitType, unitNum: data.unitNum, unitLabel: data.unitLabel,
+    scheduledDate: data.scheduledDate,
+    assignedTo: data.assignedTo ? String(data.assignedTo).trim() : '',
+    relatedReservationCode: data.relatedReservationCode || '',
+    notes: data.notes ? String(data.notes).trim() : '',
+    status: 'pendiente',
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  await dbSet(`cleaningTasks/${code}`, rec);
+  return rec;
+}
+async function listCleaningTasks() {
+  const snap = await dbGet('cleaningTasks');
+  return Object.values(snap.val() || {});
+}
+async function setCleaningStatus(code, status) {
+  const snap = await dbGet(`cleaningTasks/${code}`);
+  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  const updates = { [`cleaningTasks/${code}/status`]: status };
+  if (status === 'completado') updates[`cleaningTasks/${code}/completedAt`] = new Date().toISOString();
+  await dbUpdate(updates);
+  return { ...snap.val(), status, completedAt: status === 'completado' ? new Date().toISOString() : snap.val().completedAt };
+}
+
+// --- Mantenimiento (fallas/pedidos reportados sobre un apartamento) ---
+
+async function createMaintenanceTicket(data) {
+  const code = generateCode();
+  const rec = {
+    code,
+    unitType: data.unitType, unitNum: data.unitNum, unitLabel: data.unitLabel,
+    title: String(data.title || '').trim(),
+    description: data.description ? String(data.description).trim() : '',
+    priority: ['baja', 'media', 'alta'].includes(data.priority) ? data.priority : 'media',
+    status: 'abierto',
+    reportedBy: data.reportedBy || '',
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+  };
+  await dbSet(`maintenanceTickets/${code}`, rec);
+  return rec;
+}
+async function listMaintenanceTickets() {
+  const snap = await dbGet('maintenanceTickets');
+  return Object.values(snap.val() || {});
+}
+async function setMaintenanceStatus(code, status) {
+  const snap = await dbGet(`maintenanceTickets/${code}`);
+  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  const updates = { [`maintenanceTickets/${code}/status`]: status };
+  if (status === 'resuelto') updates[`maintenanceTickets/${code}/resolvedAt`] = new Date().toISOString();
+  await dbUpdate(updates);
+  return { ...snap.val(), status, resolvedAt: status === 'resuelto' ? new Date().toISOString() : snap.val().resolvedAt };
+}
+
+// --- Check-in / check-out real (marca de hora real de cuándo el huésped de verdad llegó/se
+// fue — checkin/checkout en la reserva son solo las fechas PLANEADAS). Capa puramente
+// aditiva sobre el estado ya existente: no reemplaza confirmar/completar, solo lo acompaña. ---
+
+async function checkInReservation(code) {
+  const rec = await getReservationByCode(code);
+  if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
+  if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'not-a-reservation'; throw e; }
+  if (rec.status !== 'confirmada') { const e = new Error('reservation-not-confirmed'); e.code = 'reservation-not-confirmed'; throw e; }
+  if (rec.actualCheckinAt) { const e = new Error('already-checked-in'); e.code = 'already-checked-in'; throw e; }
+  await dbSet(`${pathFor('reserva')}/${code}/actualCheckinAt`, new Date().toISOString());
+  return getReservationByCode(code);
+}
+
+async function checkOutReservation(code) {
+  const rec = await getReservationByCode(code);
+  if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
+  if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'not-a-reservation'; throw e; }
+  if (!rec.actualCheckinAt) { const e = new Error('not-checked-in-yet'); e.code = 'not-checked-in-yet'; throw e; }
+  if (rec.actualCheckoutAt) { const e = new Error('already-checked-out'); e.code = 'already-checked-out'; throw e; }
+  await dbSet(`${pathFor('reserva')}/${code}/actualCheckoutAt`, new Date().toISOString());
+  // Dispara automáticamente el aseo de salida — una acción real del admin (el huésped de
+  // verdad se fue) debe dejar armado el siguiente paso operativo, no depender de que alguien
+  // se acuerde de crearlo a mano (mismo espíritu que el resto del archivo: liberar
+  // noches/turno automáticamente en vez de dejarlo como tarea manual separada).
+  try {
+    await createCleaningTask({
+      unitType: rec.unitType, unitNum: rec.unitNum, unitLabel: rec.unitLabel,
+      scheduledDate: todayIsoBogota(), relatedReservationCode: code,
+      notes: 'Aseo de salida generado automáticamente al registrar el check-out.',
+    });
+  } catch (err) {
+    console.error('[firebase] checkOutReservation: no se pudo crear la tarea de aseo automática', err);
+  }
+  return getReservationByCode(code);
+}
+
+// --- Tráfico del sitio público — conteo agregado por día y por página, SIN cookies, SIN IP,
+// SIN ningún identificador de visitante: no se puede reconstruir quién visitó, solo cuánto. ---
+
+function sanitizeTrafficPath(path) {
+  const withoutQuery = String(path || '/').split('?')[0].split('#')[0] || '/';
+  return withoutQuery.slice(0, 200).replace(/[.#$/[\]]/g, '_') || '_root';
+}
+async function recordPageview(path) {
+  const day = todayIsoBogota();
+  const key = sanitizeTrafficPath(path);
+  await dbTransaction(`siteTraffic/${day}/paths/${key}`, (current) => (current || 0) + 1);
+  await dbTransaction(`siteTraffic/${day}/total`, (current) => (current || 0) + 1);
+}
+async function getSiteTraffic(days) {
+  const snap = await dbGet('siteTraffic');
+  const all = snap.val() || {};
+  return Object.keys(all).sort().slice(-days).map((day) => ({
+    day, total: all[day].total || 0, paths: all[day].paths || {},
+  }));
+}
+
 module.exports = {
   init,
   db,
@@ -629,4 +801,17 @@ module.exports = {
   getAllUnitBookings,
   listApartmentsWithEffectiveStatus,
   getDashboardSummary,
+  createContract,
+  listContracts,
+  setContractStatus,
+  createCleaningTask,
+  listCleaningTasks,
+  setCleaningStatus,
+  createMaintenanceTicket,
+  listMaintenanceTickets,
+  setMaintenanceStatus,
+  checkInReservation,
+  checkOutReservation,
+  recordPageview,
+  getSiteTraffic,
 };

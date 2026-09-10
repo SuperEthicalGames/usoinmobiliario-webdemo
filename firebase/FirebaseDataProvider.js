@@ -46,9 +46,15 @@ function isHoldExpiredRecord(rec){
    campo manual desconectado de las reservas reales — eso es "mentir". `apartments/{id}/status`
    sigue existiendo como control manual del admin (útil para bajar una unidad por
    mantenimiento sin necesitar una reserva formal detrás), pero acá se RECALCULA contra las
-   reservas CONFIRMADAS de esa unidad (nunca las "pendiente" — una solicitud sin confirmar no
-   debe poder marcar una unidad como ocupada, solo bloquea esas fechas puntuales, ver más
-   abajo) y esa versión calculada es la que gana si hay una reserva activa u próxima. */
+   reservas reales de esa unidad y esa versión calculada es la que gana si hay una reserva
+   activa o próxima.
+   ANTES: solo contaba CONFIRMADAS — un cliente real completando el flujo de reserva (HOLD
+   'pendiente', todavía sin que el admin la confirme a mano) no cambiaba nada acá, así que la
+   unidad seguía viéndose "disponible" para el resto de visitantes mientras esa reserva ya
+   estaba en curso. Bug real reportado ("el sitio no actualiza el estado en el flujo del
+   cliente"). Ahora un HOLD 'pendiente' vigente (no vencido, ver isHoldExpiredRecord) cuenta
+   igual que una confirmada — rechazada/cancelada o un HOLD ya vencido nunca cuentan, así que
+   un abandono no deja la unidad "atascada" como ocupada. */
 function effectiveStatus(typeKey, num, rawStatus){
   var bookings = cache.unitBookings[unitKeyOf(typeKey, num)];
   if(!bookings) return rawStatus;
@@ -56,7 +62,9 @@ function effectiveStatus(typeKey, num, rawStatus){
   var hasActive = false, hasFuture = false;
   Object.keys(bookings).forEach(function(code){
     var b = bookings[code];
-    if(!b || b.status !== 'confirmada' || b.type !== 'reserva') return;
+    if(!b || b.type !== 'reserva') return;
+    var isLiveHold = b.status === 'pendiente' && !isHoldExpiredRecord(b);
+    if(b.status !== 'confirmada' && !isLiveHold) return;
     if(b.checkin <= today && today < b.checkout) hasActive = true;
     else if(b.checkin > today) hasFuture = true;
   });

@@ -171,6 +171,32 @@ app.post('/email/reservation-confirmation', allowSiteOrigin, async (req, res) =>
   }
 });
 
+// Conteo de tráfico del sitio público (sección "público visitado" del panel de analíticas) —
+// público y sin requireAdminAuth a propósito, igual que /chat/web/message: el navegador de un
+// visitante nunca tiene ni puede tener un token de admin. Guarda SOLO un contador agregado por
+// día y por página (ver firebase.js:recordPageview) — nada de cookies, IP ni fingerprint, así
+// que un rate limit generoso (una sesión de navegación normal manda pocas decenas de pageviews,
+// nunca cientos) alcanza para frenar un script abusando del endpoint sin bloquear tráfico real.
+const trafficLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate-limited' },
+});
+app.options('/track/pageview', allowSiteOrigin);
+app.post('/track/pageview', allowSiteOrigin, trafficLimiter, async (req, res) => {
+  const { path } = req.body || {};
+  if (path != null && typeof path !== 'string') return res.status(400).json({ error: 'invalid-path' });
+  try {
+    await firebase.recordPageview(path);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[app] Error registrando pageview:', err);
+    res.status(500).json({ error: 'internal-error' });
+  }
+});
+
 // Panel de administración (usoinmobiliario-middleware) — todo bajo /admin/api/* pasa por CORS
 // del origen del panel (nunca el del sitio público) y por requireAdminAuth (token real de
 // Firebase Auth, verificado server-side). El preflight OPTIONS se registra ANTES y sin
