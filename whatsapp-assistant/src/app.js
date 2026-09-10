@@ -51,8 +51,19 @@ function allowSiteOrigin(req, res, next) {
 // CORS separado para /admin/api/* — origen DISTINTO (el panel de administración,
 // usoinmobiliario-middleware), nunca el mismo que el sitio público. Necesita el header
 // Authorization (token de Firebase), a diferencia de allowSiteOrigin.
+//
+// Además de config.adminOrigin (producción), se acepta cualquier http://localhost:<puerto> —
+// el panel corriendo con `npm run dev` no tenía forma de hablar con el backend real, ni
+// siquiera para pruebas manuales (bug real: se vio en vivo, cada llamada admin fallaba con
+// "Response to preflight request doesn't pass access control check"). Esto NO relaja el
+// control de acceso real: requireAdminAuth (abajo, antes de adminRoutes) sigue exigiendo un
+// token válido de Firebase sin importar el origen — CORS es solo qué respuestas puede LEER un
+// navegador, nunca la única barrera (mismo criterio ya documentado arriba para allowSiteOrigin).
+const LOCALHOST_ORIGIN = /^http:\/\/localhost:\d+$/;
 function allowAdminOrigin(req, res, next) {
-  res.setHeader('Access-Control-Allow-Origin', config.adminOrigin);
+  const origin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', LOCALHOST_ORIGIN.test(origin || '') ? origin : config.adminOrigin);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
