@@ -1,0 +1,45 @@
+name: Deploy sitio a GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Sitio estático de un solo archivo (todo el CSS/JS va embebido en index.html, ver
+      # README) — arma una carpeta con SOLO lo que el navegador necesita, para no publicar
+      # whatsapp-assistant/, email-worker/, semillas de Firebase ni las reglas de la base de
+      # datos. firebase-config.js SÍ va (el apiKey de una app web de Firebase no es secreto,
+      # ver el comentario en ese mismo archivo; la protección real es database.rules.json).
+      - name: Preparar sitio estático
+        run: |
+          mkdir -p _site/firebase
+          cp index.html _site/
+          cp -r media _site/
+          cp firebase/FirebaseDataProvider.js firebase/firebase-config.js _site/firebase/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
