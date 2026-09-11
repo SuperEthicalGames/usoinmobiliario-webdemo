@@ -203,8 +203,23 @@ app.post('/track/pageview', allowSiteOrigin, trafficLimiter, async (req, res) =>
 // requireAdminAuth — un preflight real de navegador no manda el header Authorization todavía
 // (mismo bug de preflight ya encontrado y corregido en /email/reservation-confirmation, acá
 // aplicado a todo el prefijo con un comodín en vez de ruta por ruta).
+//
+// Rate limit generoso (defensa en profundidad, no la barrera principal — esa es
+// requireAdminAuth): sin esto, cualquiera que descubra esta URL podía mandar bearer tokens
+// inventados sin límite, cada uno forzando una llamada de red real a
+// admin.auth().verifyIdToken() (costo/latencia real, no gratis) antes de ser rechazado con
+// 401. El panel real hace, como mucho, unas pocas decenas de llamadas por minuto en el uso
+// normal de un solo admin — 200/5min deja margen de sobra sin abrir la puerta a un abuso
+// ilimitado del endpoint más sensible del backend.
+const adminLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate-limited' },
+});
 app.options('/admin/api/*', allowAdminOrigin);
-app.use('/admin/api', allowAdminOrigin, requireAdminAuth, adminRoutes);
+app.use('/admin/api', allowAdminOrigin, adminLimiter, requireAdminAuth, adminRoutes);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

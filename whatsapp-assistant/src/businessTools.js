@@ -160,6 +160,15 @@ async function createReservationHold(args = {}) {
     const apt = await fb.getApartment(typeKey, num);
     if (!apt) return { ok: false, error: 'No existe ese apartamento.' };
     if (!isUnitBookable(apt)) return { ok: false, error: 'Ese apartamento no está disponible para reservar en este momento.' };
+    // missingReservationFields solo valida que guests sea un entero positivo — nunca contra
+    // el apartamento real, porque en ese punto todavía no se ha resuelto cuál es (num podría
+    // resolverse por typeKey+num o solo por num, ver findApartmentByNum). El modelo de IA
+    // puede, bajo presión o un dato mal extraído del cliente, pedir una reserva con más
+    // huéspedes de los que la unidad admite — hallazgo real de esta auditoría: nada lo
+    // impedía server-side antes de este chequeo, solo el prompt "sugería" respetar maxPersons.
+    if (apt.maxPersons && Number(guests) > apt.maxPersons) {
+      return { ok: false, error: `Ese apartamento admite máximo ${apt.maxPersons} huésped(es).` };
+    }
 
     const availability = await fb.checkAvailability(apt.typeKey, apt.num, checkin, checkout);
     if (!availability.available) {

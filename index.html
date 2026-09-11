@@ -1,6 +1,20 @@
 <meta charset="utf-8">
 <title>Uso Inmobiliario — Catálogo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- GitHub Pages sirve archivos estáticos sin poder configurar headers HTTP reales, así que
+     CSP/Referrer-Policy van acá por <meta> — es lo único que un sitio 100% estático puede
+     controlar por su cuenta. X-Frame-Options/HSTS/X-Content-Type-Options SÍ requieren un
+     header HTTP real (no existen como <meta>): ver DEPLOYMENT.md, quedan documentados como
+     pendientes de una capa como Cloudflare delante de GitHub Pages.
+     script-src/style-src necesitan 'unsafe-inline' porque todo el sitio es un único HTML sin
+     build step (por diseño, ver AUDITORIA.md) — no hay paso de compilación donde inyectar un
+     nonce por request. Esto NO cubre los mismos bugs que ya se corrigieron aparte (escapes de
+     atributo, esquemas javascript:/data: en href) — sigue haciendo falta escapar/validar cada
+     dato en el punto donde se usa; lo que sí bloquea es cargar un script/stylesheet desde
+     cualquier origen fuera de esta lista, y limita a dónde puede conectarse/enviar datos la
+     página (connect-src) y qué puede embeberse en un <iframe> (frame-src). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://cdn.jsdelivr.net https://streetviewpixels-pa.googleapis.com; connect-src 'self' https://usoinmobiliario-whatsapp-bot.onrender.com https://*.firebaseio.com wss://*.firebaseio.com https://www.googleapis.com; frame-src https://www.google.com; object-src 'none'; base-uri 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,340;0,9..144,460;0,9..144,560;1,9..144,460&family=Karla:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -2053,6 +2067,16 @@ var HERO_IMG = "media/hero.jpg";
       });
     }
 
+    // Un dato como paymentReport.proofUrl lo escribe el cliente (o cualquiera que llame a
+    // Firebase directo — ver database.rules.json, que ya exige https:// del lado del
+    // servidor) y termina como href de un <a> real. escHtml() solo evita que el string rompa
+    // el atributo — no evita que sea un esquema peligroso tipo "javascript:"/"data:" bien
+    // formado dentro de comillas válidas. Antes de usar cualquier URL de datos como href, hay
+    // que confirmar el esquema explícitamente, nunca asumir que "es un string escapado" alcanza.
+    function isSafeHttpUrl(s){
+      return typeof s === 'string' && /^https:\/\//i.test(s.trim());
+    }
+
     function pad(n){ return n<10 ? '0'+n : ''+n; }
     function isoDate(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
     function parseIso(s){
@@ -2829,6 +2853,7 @@ var HERO_IMG = "media/hero.jpg";
 
     return {
       open:open, openGeneralVisit:openGeneralVisit, close:close, isOpen:isOpen, render:render, escHtml:escHtml,
+      isSafeHttpUrl: isSafeHttpUrl,
       reservationDisplayStatus: reservationDisplayStatus, isHoldExpired: isHoldExpired, fmtCountdown: fmtCountdown,
       refreshOccupied: refreshOccupied
     };
@@ -2879,8 +2904,16 @@ var HERO_IMG = "media/hero.jpg";
     // escapa el HTML PRIMERO (el texto es de la IA, nunca se confía en él) y solo después se
     // aplican las etiquetas seguras — así una respuesta del modelo nunca puede inyectar HTML
     // real, por más que el prompt ya le pida no hacerlo.
+    // Escapa también comillas — el texto de la IA nunca se confía, e insertarlo sin escapar
+    // comillas dentro de un atributo (ver el href de más abajo) permitiría que una respuesta
+    // del modelo (por ejemplo, bajo un intento de inyección de prompt que le pida "repetir
+    // literalmente" un texto arbitrario) cerrara el atributo href e inyectara uno nuevo
+    // (onmouseover=...). Hallazgo real de esta auditoría, no teórico: sin esto, un "link" con
+    // una comilla dentro rompía el atributo aunque < > & ya estuvieran escapados.
     function escapeHtml(s){
-      return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+      });
     }
     function formatMessageHtml(text){
       var out = escapeHtml(text);
@@ -2888,8 +2921,12 @@ var HERO_IMG = "media/hero.jpg";
       out = out.replace(/_(.+?)_/g, '<em>$1</em>');
       out = out.replace(/~(.+?)~/g, '<s>$1</s>');
       // El bot manda el link real de cada apartamento como texto plano (nunca Markdown) — se
-      // vuelve cliqueable acá, después de escapar, nunca antes.
-      out = out.replace(/(https?:\/\/[^\s&<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+      // vuelve cliqueable acá, después de escapar, nunca antes. Solo http(s): nunca se debe
+      // poder colar un esquema "javascript:"/"data:" aunque el modelo lo emita (ver
+      // isSafeHttpUrl en BOOKING para el mismo criterio del lado del sitio principal).
+      out = out.replace(/(https?:\/\/[^\s&<]+)/g, function(m){
+        return /^https?:\/\//i.test(m) ? '<a href="'+m+'" target="_blank" rel="noopener">'+m+'</a>' : m;
+      });
       out = out.replace(/\n/g, '<br>');
       return out;
     }
@@ -3324,7 +3361,7 @@ var HERO_IMG = "media/hero.jpg";
         +   '<div class="payment-row"><span>'+t('prAmount')+'</span><b>'+(pr.amount!=null?fmtCOP(pr.amount):'—')+'</b></div>'
         +   '<div class="payment-row"><span>'+t('prBank')+'</span><b>'+BOOKING.escHtml(pr.bank||'—')+'</b></div>'
         +   '<div class="payment-row"><span>'+t('prReference')+'</span><b>'+BOOKING.escHtml(pr.reference||'—')+'</b></div>'
-        +   (pr.proofUrl ? '<div class="payment-row"><span>'+t('prProofUrl')+'</span><b><a href="'+BOOKING.escHtml(pr.proofUrl)+'" target="_blank" rel="noopener">'+t('prProofLinkLabel')+'</a></b></div>' : '')
+        +   (BOOKING.isSafeHttpUrl(pr.proofUrl) ? '<div class="payment-row"><span>'+t('prProofUrl')+'</span><b><a href="'+BOOKING.escHtml(pr.proofUrl)+'" target="_blank" rel="noopener">'+t('prProofLinkLabel')+'</a></b></div>' : '')
         + '</div></div>';
       return;
     }

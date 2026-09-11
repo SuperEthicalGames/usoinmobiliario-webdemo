@@ -33,8 +33,18 @@ function verifyWebhook(query) {
 let warnedNotConfigured = false;
 function verifySignature(rawBody, signatureHeader) {
   if (!config.whatsapp.appSecret) {
+    // FAIL CLOSED en producción: aceptar tráfico sin firma ("warn and accept") es exactamente
+    // el patrón que SECURITY_AUDIT.md marca como inaceptable para un webhook público — sin
+    // esto, cualquiera que encuentre la URL puede inyectar mensajes falsos (gasto de cuota de
+    // IA, HOLDs falsos, mensajes salientes a un tercero con el WhatsApp real del negocio).
+    // Fuera de producción (desarrollo local sin secretos de Meta a mano) sí se permite seguir
+    // probando el bot sin firma, con una advertencia clara en logs.
+    if (config.isProduction) {
+      console.error('[whatsapp] WHATSAPP_APP_SECRET no configurado en producción (NODE_ENV=production) — rechazando TODO el tráfico del webhook hasta configurarlo. Ver DEPLOYMENT.md: Meta for Developers > tu app > Configuración > Básica > "App Secret", luego agrégalo como variable de entorno en Render.');
+      return false;
+    }
     if (!warnedNotConfigured) {
-      console.warn('[whatsapp] WHATSAPP_APP_SECRET no configurado — la firma del webhook NO se está verificando todavía (ver AUDITORIA_COMPLETA.md, hallazgo de severidad alta). No bloquea tráfico real de Meta mientras tanto.');
+      console.warn('[whatsapp] WHATSAPP_APP_SECRET no configurado — la firma del webhook NO se está verificando (permitido solo fuera de producción). NUNCA despliegues así a producción.');
       warnedNotConfigured = true;
     }
     return true;

@@ -56,8 +56,21 @@ router.get('/apartments', asyncHandler(async (_req, res) => {
   res.json(await fb.listApartmentsWithEffectiveStatus());
 }));
 
+// priceCheck se calcula acá (no en fb.listReservations, que también usa la IA por
+// getReservationByCode) — el panel es el único consumidor que necesita esta alerta; ver
+// pricing.priceIntegrityCheck para el porqué (el sitio web calcula el precio en el navegador
+// y lo escribe directo a Firebase, sin que ningún backend lo recalculara hasta ahora).
+async function attachPriceCheck(records) {
+  return Promise.all(records.map(async (r) => {
+    if (r.type !== 'reserva' || r.estTotal == null) return r;
+    const apt = await fb.getApartment(r.unitType, r.unitNum);
+    const priceCheck = pricing.priceIntegrityCheck(r, apt);
+    return priceCheck ? { ...r, priceCheck } : r;
+  }));
+}
+
 router.get('/reservations', asyncHandler(async (_req, res) => {
-  res.json(await fb.listReservations());
+  res.json(await attachPriceCheck(await fb.listReservations()));
 }));
 
 router.get('/visits', asyncHandler(async (_req, res) => {
@@ -69,7 +82,8 @@ router.get('/visits', asyncHandler(async (_req, res) => {
 router.get('/records/:code', asyncHandler(async (req, res) => {
   const rec = await fb.getReservationByCode(req.params.code.toUpperCase());
   if (!rec) return res.status(404).json({ error: 'not-found' });
-  res.json(rec);
+  const [withPriceCheck] = await attachPriceCheck([rec]);
+  res.json(withPriceCheck);
 }));
 
 router.get('/payment-info', asyncHandler(async (_req, res) => {
@@ -99,6 +113,9 @@ router.post('/reservations', asyncHandler(async (req, res) => {
 
   const apt = await fb.getApartment(typeKey, num);
   if (!apt) return res.status(404).json({ error: 'apartment-not-found' });
+  if (apt.maxPersons && Number(guests) > apt.maxPersons) {
+    return res.status(400).json({ error: 'invalid', missingFields: [`máximo ${apt.maxPersons} huésped(es) para este apartamento`] });
+  }
 
   const nights = dateUtil.nightsBetween(checkin, checkout).length;
   const snapshot = pricing.priceBreakdown(apt, nights, guests);

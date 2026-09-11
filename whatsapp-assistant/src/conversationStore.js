@@ -20,7 +20,18 @@ const locks = new Map(); // phone -> promesa de la cola de procesamiento en curs
 function runSerialized(phone, fn) {
   const previous = locks.get(phone) || Promise.resolve();
   const run = previous.then(fn, fn);
-  locks.set(phone, run.catch(() => {}));
+  const chained = run.catch(() => {});
+  locks.set(phone, chained);
+  // A diferencia de `conversations` (que sí tiene cleanupExpired por TTL), esta entrada nunca
+  // se borraba — cada número/sessionId distinto que alguna vez escriba (incluyendo
+  // "web:<sessionId>", generado por el navegador del visitante sin ningún límite real de
+  // cuántos puede crear) dejaba una entrada permanente en memoria mientras el proceso viva.
+  // Hallazgo real de esta auditoría (fuga sin cota, no solo cosmético). Basta con borrar la
+  // entrada apenas termina de resolverse, y solo si nadie más la reemplazó mientras tanto (una
+  // llamada concurrente ya habría puesto su propia promesa en su lugar).
+  chained.finally(() => {
+    if (locks.get(phone) === chained) locks.delete(phone);
+  });
   return run;
 }
 

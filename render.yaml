@@ -14,6 +14,13 @@ services:
     envVars:
       - key: PORT
         value: 3000
+      # Activa los controles que solo deben aplicar en producción (hoy: exigir la firma del
+      # webhook de WhatsApp en vez de solo advertir si falta — ver whatsapp.js/config/index.js
+      # y SECURITY_AUDIT.md). IMPORTANTE: una vez desplegado esto, el webhook deja de aceptar
+      # mensajes hasta que WHATSAPP_APP_SECRET (abajo) tenga un valor real configurado en el
+      # dashboard de Render.
+      - key: NODE_ENV
+        value: production
       - key: FIREBASE_DATABASE_URL
         value: https://usoinmobiliario-c8e83-default-rtdb.firebaseio.com
       - key: SITE_BASE_URL

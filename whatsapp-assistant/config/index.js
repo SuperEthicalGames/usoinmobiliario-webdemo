@@ -16,6 +16,12 @@ function optional(name, fallback) {
 const config = {
   port: Number(optional('PORT', '3000')),
 
+  // Distingue producción de desarrollo local para un puñado de controles que NUNCA deben
+  // relajarse en producción (hoy: exigir la firma del webhook de WhatsApp, ver whatsapp.js) —
+  // sección "cambios de producción importantes" de la auditoría de seguridad. Render no fija
+  // NODE_ENV por su cuenta; se define explícitamente en render.yaml.
+  isProduction: optional('NODE_ENV', 'development') === 'production',
+
   firebase: {
     databaseURL: required('FIREBASE_DATABASE_URL'),
     serviceAccountJson: optional('FIREBASE_SERVICE_ACCOUNT_JSON', ''),
