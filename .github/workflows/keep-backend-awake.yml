@@ -1,0 +1,38 @@
+name: Keep backend awake
+
+# El plan gratuito de Render (usoinmobiliario-whatsapp-bot) apaga la instancia tras ~15 min sin
+# tráfico, y el primer request tras eso tarda 50s+ en responder (visible como demora real para
+# un cliente escribiéndole al bot por primera vez en un rato). Este workflow le pega a /health
+# cada 10 minutos para que nunca llegue a dormirse — pero SOLO durante horario activo
+# (6am-11pm hora Bogotá), no las 24 horas: Render da 750 horas gratis/mes, y un mes de 31 días
+# tiene 744 horas — pingar todo el día casi agota esa cuota (6h de margen, muy justo si hay
+# cualquier otro uso en la cuenta de Render). Limitado a 17h/día, el uso queda en ~527h/mes,
+# con ~223h de margen de sobra. Fuera de ese horario, Render puede dormirse solo — un mensaje
+# real a esa hora es tráfico improbable para este negocio y el retraso de 50s es aceptable ahí.
+#
+# Ajustar el rango de horas (variables ACTIVE_FROM_HOUR/ACTIVE_TO_HOUR abajo) si el negocio
+# cambia su horario real de atención.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      ACTIVE_FROM_HOUR: 6
+      ACTIVE_TO_HOUR: 23
+      HEALTH_URL: https://usoinmobiliario-whatsapp-bot.onrender.com/health
+    steps:
+      - name: Ping solo en horario activo (hora Bogotá)
+        run: |
+          hour=$(TZ='America/Bogota' date +%H)
+          hour=$((10#$hour))
+          if [ "$hour" -ge "$ACTIVE_FROM_HOUR" ] && [ "$hour" -lt "$ACTIVE_TO_HOUR" ]; then
+            echo "Hora Bogotá: $hour — dentro del horario activo, haciendo ping a $HEALTH_URL"
+            curl -sf -o /dev/null -w "status: %{http_code}, tiempo: %{time_total}s\n" "$HEALTH_URL" || echo "Ping falló (no crítico — el próximo intento es en 10 minutos, y Meta reintenta la entrega de mensajes reales si el bot está dormido)."
+          else
+            echo "Hora Bogotá: $hour — fuera del horario activo ($ACTIVE_FROM_HOUR-$ACTIVE_TO_HOUR), no se hace ping. Render puede dormirse en este rango, a propósito (ver comentario del archivo)."
+          fi
