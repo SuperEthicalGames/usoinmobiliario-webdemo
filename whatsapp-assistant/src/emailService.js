@@ -132,7 +132,7 @@ function reservationCreatedHtml(rec, categoryLabel, lang) {
       : (isEs ? 'Entra a tu reserva para elegir cómo prefieres pagar (transferencia o efectivo) y ver las instrucciones.' : "Open your booking to choose how you'd like to pay (bank transfer or cash) and see the instructions.");
 
   const manageUrl = `${config.siteBaseUrl}/#/mi-reserva?code=${encodeURIComponent(rec.code)}`;
-  const waUrl = 'https://wa.me/573003848517?text=' + encodeURIComponent(isEs
+  const waUrl = 'https://wa.me/573136496615?text=' + encodeURIComponent(isEs
     ? `Hola, tengo una pregunta sobre mi reserva ${rec.code}.`
     : `Hi, I have a question about my booking ${rec.code}.`);
 
