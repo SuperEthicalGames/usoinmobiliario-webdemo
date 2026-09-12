@@ -2,7 +2,10 @@
 
 Este documento describe cómo el ecosistema completo (sitio público, backend, panel
 administrativo) protege datos y operaciones hoy. Para hallazgos, evidencia y correcciones
-puntuales, ver `SECURITY_AUDIT.md`. Para cómo encajan las piezas, ver `ARCHITECTURE.md`.
+puntuales, ver `SECURITY_AUDIT.md`. Para la respuesta punto por punto a una auditoría externa
+del 2026-09-11 (incluye el hallazgo más grave detectado hasta ahora — candados permanentes de
+disponibilidad vía escritura directa a `bookedNights`/`bookedVisitSlots`, ya corregido), ver
+`AUDITORIA_EXTERNA_2026_09.md`. Para cómo encajan las piezas, ver `ARCHITECTURE.md`.
 
 ## Actores
 
@@ -46,6 +49,16 @@ token coincida con el rol correcto (`requireSuperAdmin`), nunca solo `auth != nu
   línea). Resumen: catálogo/contenido de solo lectura pública; reservas/citas de creación pública
   pero modificación solo por admin (`auth != null || !data.exists()`); pagos con una única
   transición pública permitida (`'none' → 'submitted'`); todo lo demás, `auth != null`.
+  Desde 2026-09-12 (ver `AUDITORIA_EXTERNA_2026_09.md` §2), esa creación pública de
+  `unitBookings`/`bookedNights`/`bookedVisitSlots` además exige, dentro del mismo `update()`
+  atómico, que exista una `reservationsManager/reservations` o `/visits` real detrás — cierra
+  el candado permanente de disponibilidad que un nodo huérfano (sin reserva real, sin
+  `expiresAt`) podía crear.
+- Bitácora (`auditLog/`, desde 2026-09-12): cada acción administrativa que cambia estado real
+  (confirmar/rechazar reserva, verificar pago, crear/revocar admin, editar datos bancarios,
+  etc.) queda registrada con quién/qué/cuándo — solo lectura del super admin
+  (`GET /admin/api/audit-log`), solo escritura del Admin SDK (ninguna regla de cliente la
+  permite). Ver `whatsapp-assistant/src/firebase.js` (`logAdminAction`/`listAuditLog`).
 
 ## Gestión de secretos
 

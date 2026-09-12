@@ -46,6 +46,19 @@ function asyncHandler(fn) {
   });
 }
 
+// Bitácora — se llama DESPUÉS de que la acción real ya se ejecutó con éxito (nunca antes, nunca
+// si la acción falló). fb.logAdminAction ya se traga sus propios errores, así que un fallo de
+// log nunca tumba la respuesta real al panel.
+function logAction(req, action, target, metadata) {
+  return fb.logAdminAction({
+    actorUid: req.adminUser.uid,
+    actorEmail: req.adminUser.email,
+    action,
+    target: target || null,
+    metadata: metadata || undefined,
+  });
+}
+
 // --- Lecturas ---
 
 router.get('/dashboard', asyncHandler(async (_req, res) => {
@@ -141,6 +154,7 @@ router.post('/reservations', asyncHandler(async (req, res) => {
   if (snapshot) { rec.estTotal = snapshot.total; rec.priceSnapshot = snapshot; }
 
   const created = await fb.createReservation(rec);
+  await logAction(req, 'reservation.create_manual', created.code, { unitType: apt.typeKey, unitNum: apt.num });
   res.status(201).json(created);
 }));
 
@@ -150,10 +164,16 @@ router.post('/reservations', asyncHandler(async (req, res) => {
 // específicas quedaran después, nunca se alcanzarían (bug real encontrado probando en vivo:
 // "check-in" llegaba como :action al comodín en vez de a esta ruta). ---
 router.post('/records/:code/check-in', asyncHandler(async (req, res) => {
-  res.json(await fb.checkInReservation(req.params.code.toUpperCase()));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.checkInReservation(code);
+  await logAction(req, 'reservation.check_in', code);
+  res.json(result);
 }));
 router.post('/records/:code/check-out', asyncHandler(async (req, res) => {
-  res.json(await fb.checkOutReservation(req.params.code.toUpperCase()));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.checkOutReservation(code);
+  await logAction(req, 'reservation.check_out', code);
+  res.json(result);
 }));
 
 // --- Confirmar / rechazar / cancelar / completar — vale para reservas Y citas por igual, es
@@ -167,8 +187,10 @@ const STATUS_ACTIONS = {
 router.post('/records/:code/:action', asyncHandler(async (req, res) => {
   const fn = STATUS_ACTIONS[req.params.action];
   if (!fn) return res.status(400).json({ error: 'invalid-action' });
-  const updated = await fn(req.params.code.toUpperCase());
+  const code = req.params.code.toUpperCase();
+  const updated = await fn(code);
   if (!updated) return res.status(404).json({ error: 'not-found' });
+  await logAction(req, `record.${req.params.action}`, code);
   res.json(updated);
 }));
 
@@ -176,7 +198,9 @@ router.post('/records/:code/:action', asyncHandler(async (req, res) => {
 // Firebase. Restringido al super admin (no cualquier admin): son los datos donde los clientes
 // depositan dinero real, el mismo nivel de sensibilidad que crear/revocar otros admins.
 router.put('/payment-info', requireSuperAdmin, asyncHandler(async (req, res) => {
-  res.json(await fb.setPaymentInfo(req.body || {}));
+  const updated = await fb.setPaymentInfo(req.body || {});
+  await logAction(req, 'payment_info.update', null, { accountHolder: updated.accountHolder });
+  res.json(updated);
 }));
 
 // --- Administradores (todo detrás de requireSuperAdmin — un admin normal ni siquiera puede
@@ -191,6 +215,7 @@ router.post('/admins', requireSuperAdmin, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'invalid', missingFields: ['email', 'password (mínimo 6 caracteres)'] });
   }
   const created = await fb.createAdminUser(email, password);
+  await logAction(req, 'admin.create', created.uid, { email: created.email });
   res.status(201).json(created);
 }));
 
@@ -199,21 +224,34 @@ router.post('/admins', requireSuperAdmin, asyncHandler(async (req, res) => {
 // No se puede revocar a sí mismo: evita que el super admin quede fuera por accidente.
 router.post('/admins/:uid/disable', requireSuperAdmin, asyncHandler(async (req, res) => {
   if (req.params.uid === req.adminUser.uid) return res.status(400).json({ error: 'cannot-disable-self' });
-  res.json(await fb.setAdminUserDisabled(req.params.uid, true));
+  const updated = await fb.setAdminUserDisabled(req.params.uid, true);
+  await logAction(req, 'admin.disable', req.params.uid, { email: updated.email });
+  res.json(updated);
 }));
 router.post('/admins/:uid/enable', requireSuperAdmin, asyncHandler(async (req, res) => {
-  res.json(await fb.setAdminUserDisabled(req.params.uid, false));
+  const updated = await fb.setAdminUserDisabled(req.params.uid, false);
+  await logAction(req, 'admin.enable', req.params.uid, { email: updated.email });
+  res.json(updated);
 }));
 
 // --- Pagos ---
 router.post('/payments/:code/verify', asyncHandler(async (req, res) => {
-  res.json(await fb.verifyPayment(req.params.code.toUpperCase()));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.verifyPayment(code);
+  await logAction(req, 'payment.verify', code);
+  res.json(result);
 }));
 router.post('/payments/:code/reject', asyncHandler(async (req, res) => {
-  res.json(await fb.rejectPayment(req.params.code.toUpperCase()));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.rejectPayment(code);
+  await logAction(req, 'payment.reject', code);
+  res.json(result);
 }));
 router.post('/payments/:code/register-cash', asyncHandler(async (req, res) => {
-  res.json(await fb.registerCashPayment(req.params.code.toUpperCase()));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.registerCashPayment(code);
+  await logAction(req, 'payment.register_cash', code);
+  res.json(result);
 }));
 
 // --- Contratos ---
@@ -229,13 +267,17 @@ router.post('/contracts', asyncHandler(async (req, res) => {
   if (!monthlyRent || Number(monthlyRent) <= 0) missing.push('renta mensual');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createContract({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, createdBy: req.adminUser.email });
+  await logAction(req, 'contract.create', created.code, { unitType, unitNum });
   res.status(201).json(created);
 }));
 const CONTRACT_STATUSES = new Set(['activo', 'finalizado', 'cancelado']);
 router.post('/contracts/:code/status', asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!CONTRACT_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
-  res.json(await fb.setContractStatus(req.params.code.toUpperCase(), status));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.setContractStatus(code, status);
+  await logAction(req, 'contract.set_status', code, { status });
+  res.json(result);
 }));
 
 // --- Aseo ---
@@ -249,13 +291,17 @@ router.post('/cleaning', asyncHandler(async (req, res) => {
   if (!scheduledDate) missing.push('fecha programada');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createCleaningTask({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}` });
+  await logAction(req, 'cleaning.create', created.code, { unitType, unitNum });
   res.status(201).json(created);
 }));
 const CLEANING_STATUSES = new Set(['pendiente', 'en-progreso', 'completado']);
 router.post('/cleaning/:code/status', asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!CLEANING_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
-  res.json(await fb.setCleaningStatus(req.params.code.toUpperCase(), status));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.setCleaningStatus(code, status);
+  await logAction(req, 'cleaning.set_status', code, { status });
+  res.json(result);
 }));
 
 // --- Mantenimiento ---
@@ -269,13 +315,17 @@ router.post('/maintenance', asyncHandler(async (req, res) => {
   if (!title || !String(title).trim()) missing.push('título');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createMaintenanceTicket({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, reportedBy: req.adminUser.email });
+  await logAction(req, 'maintenance.create', created.code, { unitType, unitNum });
   res.status(201).json(created);
 }));
 const MAINTENANCE_STATUSES = new Set(['abierto', 'en-progreso', 'resuelto']);
 router.post('/maintenance/:code/status', asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!MAINTENANCE_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
-  res.json(await fb.setMaintenanceStatus(req.params.code.toUpperCase(), status));
+  const code = req.params.code.toUpperCase();
+  const result = await fb.setMaintenanceStatus(code, status);
+  await logAction(req, 'maintenance.set_status', code, { status });
+  res.json(result);
 }));
 
 // --- Tráfico del sitio público (solo lectura acá — la escritura la hace /track/pageview en
@@ -283,6 +333,13 @@ router.post('/maintenance/:code/status', asyncHandler(async (req, res) => {
 router.get('/site-traffic', asyncHandler(async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90);
   res.json(await fb.getSiteTraffic(days));
+}));
+
+// --- Bitácora de acciones administrativas — mismo nivel de sensibilidad que /admins y
+// /payment-info (quién hizo qué le importa sobre todo al dueño, no a cualquier admin operativo).
+router.get('/audit-log', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+  res.json(await fb.listAuditLog(limit));
 }));
 
 module.exports = router;

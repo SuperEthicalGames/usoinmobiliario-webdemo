@@ -113,7 +113,7 @@
       "$unitKey": {
         "$code": {
           ".write": "auth != null || !data.exists()",
-          ".validate": "newData.hasChildren(['status','type'])",
+          ".validate": "newData.hasChildren(['status','type']) && ((newData.child('type').val() == 'reserva' && root.child('reservationsManager/reservations/'+$code).exists() && root.child('reservationsManager/reservations/'+$code+'/unitType').val() + '_' + root.child('reservationsManager/reservations/'+$code+'/unitNum').val() == $unitKey) || (newData.child('type').val() == 'cita' && root.child('reservationsManager/visits/'+$code).exists() && root.child('reservationsManager/visits/'+$code+'/unitType').val() + '_' + root.child('reservationsManager/visits/'+$code+'/unitNum').val() == $unitKey))",
 
           "status": { ".validate": "auth != null || newData.val() == 'pendiente'" },
           "type": { ".validate": "newData.val() == 'reserva' || newData.val() == 'cita'" },
@@ -137,7 +137,7 @@
         "$date": {
           ".read": true,
           ".write": "auth != null || !data.exists() || (root.child('unitBookings/'+$unitKey+'/'+data.val()+'/status').val() == 'pendiente' && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/expiresAt').val() < now && root.child('unitBookings/'+$unitKey+'/'+data.val()+'/paymentStatus').val() != 'submitted')",
-          ".validate": "newData.isString()"
+          ".validate": "newData.isString() && root.child('unitBookings/'+$unitKey+'/'+newData.val()).exists() && root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/type').val() == 'reserva' && root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/checkin').val() <= $date && $date < root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/checkout').val()"
         }
       }
     },
@@ -147,7 +147,7 @@
         "$slot": {
           ".read": true,
           ".write": "auth != null || !data.exists()",
-          ".validate": "newData.isString()"
+          ".validate": "newData.isString() && root.child('unitBookings/'+$unitKey+'/'+newData.val()).exists() && root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/type').val() == 'cita' && (root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/visitDate').val() + '_' + root.child('unitBookings/'+$unitKey+'/'+newData.val()+'/visitTime').val()) == $slot"
         }
       }
     },
