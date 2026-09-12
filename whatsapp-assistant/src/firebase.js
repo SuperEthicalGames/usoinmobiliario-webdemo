@@ -765,6 +765,42 @@ async function getSiteTraffic(days) {
   }));
 }
 
+// --- Bitácora de acciones administrativas — quién hizo qué y cuándo, sobre qué reserva/
+// contrato/tarea/admin. Ningún hallazgo de seguridad depende de esto (las Rules/requireAdminAuth
+// ya son la barrera real), es trazabilidad para cuando algo hay que auditar después del hecho
+// (sección 34 de la auditoría externa 2026-09-11: "falta auditoría de acciones"). Nunca debe
+// romper la acción real que está registrando — mejor esfuerzo, un fallo de log se traga y se
+// loguea a consola, no se propaga como error 500 al panel. ---
+async function logAdminAction({ actorUid, actorEmail, action, target, metadata }) {
+  const entry = {
+    actorUid: actorUid || null,
+    actorEmail: actorEmail || null,
+    action,
+    target: target || null,
+    metadata: metadata || null,
+    timestamp: nowEpochMs(),
+  };
+  try {
+    await withTimeout(db().ref('auditLog').push(entry), `push auditLog ${action}`);
+  } catch (err) {
+    console.error('[firebase] no se pudo escribir auditLog (acción real ya se ejecutó, esto es solo trazabilidad):', err);
+  }
+}
+// Trae las últimas `limit` entradas (más reciente primero) — orderByKey().limitToLast() en vez
+// de traer TODO el árbol como listReservations/listContracts: a diferencia de esos, este árbol
+// crece sin cota (una entrada por cada acción administrativa, para siempre), así que sí importa
+// acotar la lectura desde ahora.
+async function listAuditLog(limit) {
+  const snap = await withTimeout(
+    db().ref('auditLog').orderByKey().limitToLast(limit).get(),
+    'get auditLog'
+  );
+  const all = snap.val() || {};
+  return Object.keys(all)
+    .map((id) => ({ id, ...all[id] }))
+    .sort((a, b) => b.timestamp - a.timestamp);
+}
+
 module.exports = {
   init,
   db,
@@ -814,4 +850,6 @@ module.exports = {
   checkOutReservation,
   recordPageview,
   getSiteTraffic,
+  logAdminAction,
+  listAuditLog,
 };

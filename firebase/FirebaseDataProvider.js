@@ -110,7 +110,20 @@ function apartmentsByCategory(typeKey){
        (todo o nada), así que si alguna noche/turno ya estaba tomado, el update ENTERO se
        rechaza — ninguna reserva queda "a medias" y dos reservas no pueden ganar la misma
        fecha aunque lleguen casi al mismo tiempo. Esto es lo que garantiza "no doble reserva
-       / no doble cita" de verdad, no solo una validación del lado del navegador. */
+       / no doble cita" de verdad, no solo una validación del lado del navegador.
+       IMPORTANTE (corregido 2026-09-12, ver AUDITORIA_EXTERNA_2026_09.md hallazgo #2): antes de
+       esta fecha, `!data.exists()` bastaba para CREAR un nodo en bookedNights/bookedVisitSlots
+       con cualquier código inventado, sin que existiera ningún unitBookings/reservation real
+       detrás. Eso no era solo una reserva falsa (que igual expiraría) — era un candado
+       PERMANENTE: sin un unitBookings real con `expiresAt`, ni reclaimExpiredHold() (arriba) ni
+       la condición de reclamo de la regla de bookedNights podían liberarlo nunca. Las reglas
+       ahora exigen, dentro del mismo update() atómico, que el código escrito en bookedNights/
+       bookedVisitSlots corresponda a un unitBookings real (tipo y fechas/turno coincidentes), y
+       que ESE unitBookings corresponda a su vez a una reservationsManager/reservations o
+       /visits real (mismo code, unitType/unitNum coincidentes con $unitKey) — o sea, ya no basta
+       con escribir un nodo suelto, hay que crear una reserva/cita completa y válida (con nombre/
+       teléfono/correo, aunque sean inventados) para bloquear una fecha, exactamente el mismo
+       costo que ya tenía el flujo legítimo, así que ninguna reserva real deja de funcionar. */
 
 // reservationsManager/reservations/{code} y reservationsManager/visits/{code} — separados
 // en dos sub-árboles distintos (en vez de un único `reservations/{code}` con un campo
