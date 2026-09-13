@@ -3,8 +3,17 @@ const fb = require('./firebase');
 const pricing = require('./pricing');
 const dateUtil = require('./dateUtil');
 const validators = require('./validators');
+const emailService = require('./emailService');
 const config = require('../config');
-const { requireSuperAdmin } = require('./adminAuth');
+const { requireSuperAdmin, requireRole } = require('./adminAuth');
+
+// Staff operativo (dueño incluido) — todo lo que NO es exclusivamente para tareas de un
+// empleado. Empleados quedan fuera de dashboard/reservas/pagos/apartamentos/contratos/
+// analíticas a propósito (Least Privilege, sección 4 del pedido).
+const STAFF = requireRole('owner', 'admin');
+// Cualquier cuenta autenticada válida, incluyendo empleados — usado en rutas que ya filtran o
+// acotan internamente lo que cada rol puede ver/tocar (aseo, mantenimiento, notificaciones).
+const ANY_STAFF = requireRole('owner', 'admin', 'employee');
 
 // Todo lo que expone /admin/api/* — el panel de usoinmobiliario-middleware (React+Vite+TS) es
 // el único consumidor. Nunca montado sin adminAuth.requireAdminAuth delante (ver app.js) — acá
@@ -46,6 +55,14 @@ function asyncHandler(fn) {
   });
 }
 
+// Correo de actualización de estado (sección 37 del pedido) — SIEMPRE fire-and-forget, nunca
+// awaited antes de responder al panel (sección 39: "la reserva no debe fallar simplemente
+// porque el servidor de correo está caído"). emailService ya se traga sus propios errores.
+function notifyByEmail(sendFn, rec) {
+  if (!rec) return;
+  Promise.resolve(sendFn(rec, 'es')).catch((err) => console.error('[adminRoutes] Error enviando correo de actualización:', err.message));
+}
+
 // Bitácora — se llama DESPUÉS de que la acción real ya se ejecutó con éxito (nunca antes, nunca
 // si la acción falló). fb.logAdminAction ya se traga sus propios errores, así que un fallo de
 // log nunca tumba la respuesta real al panel.
@@ -61,12 +78,34 @@ function logAction(req, action, target, metadata) {
 
 // --- Lecturas ---
 
-router.get('/dashboard', asyncHandler(async (_req, res) => {
+router.get('/dashboard', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getDashboardSummary());
 }));
 
-router.get('/apartments', asyncHandler(async (_req, res) => {
+// ANY_STAFF (no solo STAFF): un empleado necesita saber a qué unidad corresponde su tarea de
+// aseo/mantenimiento. Nada de esto es sensible — mismas tarifas que ya son públicas en el
+// sitio web, sin datos de huéspedes ni financieros.
+router.get('/apartments', ANY_STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.listApartmentsWithEffectiveStatus());
+}));
+
+// Crear/editar apartamento — antes esto solo se podía hacer a mano en la consola de Firebase
+// (§7-9 del pedido: "el middleware debe convertirse en el CMS real de la página"). Restringido
+// al dueño (igual que /users, /payment-info): son los datos que la página pública muestra y
+// vende, mismo nivel de sensibilidad de negocio. ADMIN se queda con apartments.read (arriba),
+// no con la escritura — coincide con la matriz de permisos del propio pedido (sección 6).
+router.post('/apartments', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { typeKey, num } = req.body || {};
+  if (!typeKey || !num) return res.status(400).json({ error: 'invalid', missingFields: ['typeKey', 'num'] });
+  const created = await fb.createApartment(typeKey, num, req.body);
+  await logAction(req, 'apartment.create', fb.unitKeyOf(typeKey, num));
+  res.status(201).json(created);
+}));
+router.put('/apartments/:typeKey/:num', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { typeKey, num } = req.params;
+  const updated = await fb.updateApartment(typeKey, num, req.body || {});
+  await logAction(req, 'apartment.update', fb.unitKeyOf(typeKey, num), { fields: Object.keys(req.body || {}) });
+  res.json(updated);
 }));
 
 // priceCheck se calcula acá (no en fb.listReservations, que también usa la IA por
@@ -82,44 +121,50 @@ async function attachPriceCheck(records) {
   }));
 }
 
-router.get('/reservations', asyncHandler(async (_req, res) => {
+router.get('/reservations', STAFF, asyncHandler(async (_req, res) => {
   res.json(await attachPriceCheck(await fb.listReservations()));
 }));
 
-router.get('/visits', asyncHandler(async (_req, res) => {
+router.get('/visits', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.listVisits());
 }));
 
 // Un código puede ser de reserva o de cita — getReservationByCode ya prueba ambos árboles
 // (reservationsManager/reservations y /visits), igual que el resto del backend.
-router.get('/records/:code', asyncHandler(async (req, res) => {
+router.get('/records/:code', STAFF, asyncHandler(async (req, res) => {
   const rec = await fb.getReservationByCode(req.params.code.toUpperCase());
   if (!rec) return res.status(404).json({ error: 'not-found' });
   const [withPriceCheck] = await attachPriceCheck([rec]);
   res.json(withPriceCheck);
 }));
 
-router.get('/payment-info', asyncHandler(async (_req, res) => {
+router.get('/payment-info', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getPaymentInfo());
 }));
 
-router.get('/categories', asyncHandler(async (_req, res) => {
+router.get('/categories', ANY_STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getCategories());
 }));
 
-// El panel usa esto para decidir si mostrar la pantalla de Administradores y el editor de
-// datos bancarios — la restricción REAL vive en requireSuperAdmin en cada ruta sensible, esto
-// es solo para que la UI sepa qué mostrar sin que el frontend tenga que conocer/hardcodear el
-// correo del super admin por su cuenta.
+// El panel usa esto para decidir qué mostrar en la navegación — la restricción REAL vive en
+// requireRole/requireSuperAdmin en cada ruta sensible, esto es solo para que la UI sepa qué
+// mostrar sin que el frontend tenga que conocer/hardcodear el correo del dueño por su cuenta.
+// isSuperAdmin se conserva (compatibilidad con el panel ya desplegado) — equivale exactamente
+// a role === 'owner'.
 router.get('/me', asyncHandler(async (req, res) => {
-  res.json({ uid: req.adminUser.uid, email: req.adminUser.email, isSuperAdmin: req.adminUser.email === config.superAdminEmail });
+  res.json({
+    uid: req.adminUser.uid,
+    email: req.adminUser.email,
+    role: req.adminUser.role,
+    isSuperAdmin: req.adminUser.role === 'owner',
+  });
 }));
 
 // --- Reserva manual (el admin crea a nombre de un cliente) ---
 // MISMA fórmula/forma que businessTools.createReservationHold — status:'pendiente' + HOLD de
 // 15 minutos SIEMPRE, sin atajo especial de admin (igual que ReservationService.cs de Unity:
 // si se quiere confirmada de una, es un Confirm aparte después, no una tercera ruta inventada).
-router.post('/reservations', asyncHandler(async (req, res) => {
+router.post('/reservations', STAFF, asyncHandler(async (req, res) => {
   const { typeKey, num, checkin, checkout, guests, name, phone, email, notes } = req.body || {};
   const missing = validators.missingReservationFields({ num, checkin, checkout, guests, name, phone, email });
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
@@ -153,8 +198,14 @@ router.post('/reservations', asyncHandler(async (req, res) => {
   };
   if (snapshot) { rec.estTotal = snapshot.total; rec.priceSnapshot = snapshot; }
 
-  const created = await fb.createReservation(rec);
-  await logAction(req, 'reservation.create_manual', created.code, { unitType: apt.typeKey, unitNum: apt.num });
+  // Idempotencia (sección 25 del pedido): un doble-click en "Crear reserva" desde el panel, o
+  // un reintento de red, no debe dejar dos reservas distintas para el mismo intento — el panel
+  // manda un Idempotency-Key por request real (ver api.ts), un reintento real reusa la misma.
+  const created = await fb.withIdempotency(req.headers['idempotency-key'], async () => {
+    const rec2 = await fb.createReservation(rec);
+    await logAction(req, 'reservation.create_manual', rec2.code, { unitType: apt.typeKey, unitNum: apt.num });
+    return rec2;
+  });
   res.status(201).json(created);
 }));
 
@@ -163,13 +214,13 @@ router.post('/reservations', asyncHandler(async (req, res) => {
 // como :action (cae a 400 'invalid-action' recién DENTRO del handler) — si estas dos rutas más
 // específicas quedaran después, nunca se alcanzarían (bug real encontrado probando en vivo:
 // "check-in" llegaba como :action al comodín en vez de a esta ruta). ---
-router.post('/records/:code/check-in', asyncHandler(async (req, res) => {
+router.post('/records/:code/check-in', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.checkInReservation(code);
   await logAction(req, 'reservation.check_in', code);
   res.json(result);
 }));
-router.post('/records/:code/check-out', asyncHandler(async (req, res) => {
+router.post('/records/:code/check-out', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.checkOutReservation(code);
   await logAction(req, 'reservation.check_out', code);
@@ -184,13 +235,14 @@ const STATUS_ACTIONS = {
   cancel: fb.cancelReservation,
   complete: fb.completeReservation,
 };
-router.post('/records/:code/:action', asyncHandler(async (req, res) => {
+router.post('/records/:code/:action', STAFF, asyncHandler(async (req, res) => {
   const fn = STATUS_ACTIONS[req.params.action];
   if (!fn) return res.status(400).json({ error: 'invalid-action' });
   const code = req.params.code.toUpperCase();
   const updated = await fn(code);
   if (!updated) return res.status(404).json({ error: 'not-found' });
   await logAction(req, `record.${req.params.action}`, code);
+  if (req.params.action === 'cancel' && updated.type === 'reserva') notifyByEmail(emailService.sendReservationCancelled, updated);
   res.json(updated);
 }));
 
@@ -203,51 +255,73 @@ router.put('/payment-info', requireSuperAdmin, asyncHandler(async (req, res) => 
   res.json(updated);
 }));
 
-// --- Administradores (todo detrás de requireSuperAdmin — un admin normal ni siquiera puede
-// LISTAR a los demás, no solo crear/revocar) ---
-router.get('/admins', requireSuperAdmin, asyncHandler(async (_req, res) => {
-  res.json(await fb.listAdminUsers());
+// --- Usuarios (Administradores + Empleados) — todo detrás de requireSuperAdmin (OWNER): el
+// pedido es explícito en que SOLO el dueño puede crear/editar/deshabilitar cuenta alguna, un
+// admin normal ni siquiera puede LISTAR a los demás. Reemplaza el antiguo /admins (un solo
+// consumidor, el propio panel, actualizado en el mismo cambio — ver Users.tsx). ---
+router.get('/users', requireSuperAdmin, asyncHandler(async (_req, res) => {
+  res.json(await fb.listUsersWithRoles());
 }));
 
-router.post('/admins', requireSuperAdmin, asyncHandler(async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password || String(password).length < 6) {
-    return res.status(400).json({ error: 'invalid', missingFields: ['email', 'password (mínimo 6 caracteres)'] });
-  }
-  const created = await fb.createAdminUser(email, password);
-  await logAction(req, 'admin.create', created.uid, { email: created.email });
+const CREATABLE_ROLES = new Set(['admin', 'employee']);
+router.post('/users', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { email, password, role } = req.body || {};
+  const missing = [];
+  if (!email) missing.push('email');
+  if (!password || String(password).length < 6) missing.push('password (mínimo 6 caracteres)');
+  if (!CREATABLE_ROLES.has(role)) missing.push("rol ('admin' o 'employee')");
+  if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
+  // OWNER nunca se crea por acá — es siempre config.superAdminEmail, no un dato asignable
+  // (ver adminAuth.attachRole). CREATABLE_ROLES ya excluye 'owner' por diseño, no por accidente.
+  const created = await fb.createStaffUser(email, password, role, req.adminUser.email);
+  await logAction(req, 'user.create', created.uid, { email: created.email, role });
   res.status(201).json(created);
 }));
 
-// Deshabilitar/rehabilitar en vez de borrar — reversible, y ningún dato de reservas/pagos que
-// ese admin haya tocado queda huérfano (esta cuenta nunca fue dueña de nada, solo actuaba).
-// No se puede revocar a sí mismo: evita que el super admin quede fuera por accidente.
-router.post('/admins/:uid/disable', requireSuperAdmin, asyncHandler(async (req, res) => {
+// Deshabilitar/rehabilitar en vez de borrar — reversible, y ningún dato de reservas/pagos/
+// tareas que esa cuenta haya tocado queda huérfano (nunca fue dueña de nada, solo actuaba). No
+// se puede desactivar a sí mismo: evita que el dueño quede fuera por accidente (y, de paso, que
+// un futuro cambio de rol de la propia cuenta del dueño tenga sentido — hoy es imposible porque
+// el dueño nunca aparece en este listado con un uid editable vía esta ruta más que el suyo).
+router.post('/users/:uid/disable', requireSuperAdmin, asyncHandler(async (req, res) => {
   if (req.params.uid === req.adminUser.uid) return res.status(400).json({ error: 'cannot-disable-self' });
   const updated = await fb.setAdminUserDisabled(req.params.uid, true);
-  await logAction(req, 'admin.disable', req.params.uid, { email: updated.email });
+  await logAction(req, 'user.disable', req.params.uid, { email: updated.email });
   res.json(updated);
 }));
-router.post('/admins/:uid/enable', requireSuperAdmin, asyncHandler(async (req, res) => {
+router.post('/users/:uid/enable', requireSuperAdmin, asyncHandler(async (req, res) => {
   const updated = await fb.setAdminUserDisabled(req.params.uid, false);
-  await logAction(req, 'admin.enable', req.params.uid, { email: updated.email });
+  await logAction(req, 'user.enable', req.params.uid, { email: updated.email });
+  res.json(updated);
+}));
+
+// Cambiar admin<->employee — nunca 'owner' (ver CREATABLE_ROLES). Ya detrás de
+// requireSuperAdmin, así que ni un admin ni un empleado pueden alcanzar esta ruta para
+// elevarse a sí mismos — la única cuenta que puede llamarla es la que YA es dueña de todo.
+router.put('/users/:uid/role', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { role } = req.body || {};
+  if (!CREATABLE_ROLES.has(role)) return res.status(400).json({ error: 'invalid-role' });
+  const updated = await fb.setUserRole(req.params.uid, role, req.adminUser.email);
+  await logAction(req, 'user.set_role', req.params.uid, { role });
   res.json(updated);
 }));
 
 // --- Pagos ---
-router.post('/payments/:code/verify', asyncHandler(async (req, res) => {
+router.post('/payments/:code/verify', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.verifyPayment(code);
   await logAction(req, 'payment.verify', code);
+  notifyByEmail(emailService.sendPaymentVerified, result);
   res.json(result);
 }));
-router.post('/payments/:code/reject', asyncHandler(async (req, res) => {
+router.post('/payments/:code/reject', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.rejectPayment(code);
   await logAction(req, 'payment.reject', code);
+  notifyByEmail(emailService.sendPaymentRejected, result);
   res.json(result);
 }));
-router.post('/payments/:code/register-cash', asyncHandler(async (req, res) => {
+router.post('/payments/:code/register-cash', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.registerCashPayment(code);
   await logAction(req, 'payment.register_cash', code);
@@ -255,10 +329,10 @@ router.post('/payments/:code/register-cash', asyncHandler(async (req, res) => {
 }));
 
 // --- Contratos ---
-router.get('/contracts', asyncHandler(async (_req, res) => {
+router.get('/contracts', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.listContracts());
 }));
-router.post('/contracts', asyncHandler(async (req, res) => {
+router.post('/contracts', STAFF, asyncHandler(async (req, res) => {
   const { unitType, unitNum, unitLabel, tenantName, startDate, endDate, monthlyRent } = req.body || {};
   const missing = [];
   if (!unitType || !unitNum) missing.push('apartamento');
@@ -271,7 +345,7 @@ router.post('/contracts', asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 const CONTRACT_STATUSES = new Set(['activo', 'finalizado', 'cancelado']);
-router.post('/contracts/:code/status', asyncHandler(async (req, res) => {
+router.post('/contracts/:code/status', STAFF, asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!CONTRACT_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
   const code = req.params.code.toUpperCase();
@@ -280,49 +354,85 @@ router.post('/contracts/:code/status', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-// --- Aseo ---
-router.get('/cleaning', asyncHandler(async (_req, res) => {
-  res.json(await fb.listCleaningTasks());
+// Un empleado solo ve/actúa sobre lo que se le asignó (Least Privilege, sección 4 del pedido);
+// owner/admin ven todo. `assignedTo` guarda un uid real desde que existe el picker de empleados
+// en el panel — tareas viejas con texto libre en ese campo simplemente no calzan con ningún uid
+// y quedan invisibles para empleados (correcto: nunca fueron asignadas a una cuenta real).
+function scopeToEmployee(req, list) {
+  if (req.adminUser.role !== 'employee') return list;
+  return list.filter((t) => t.assignedTo === req.adminUser.uid);
+}
+// Ídem para una sola tarea/ticket: un empleado que intenta actuar sobre algo que no es suyo
+// recibe 404, no 403 — no le confirmamos ni siquiera que el código existe (mismo criterio que
+// el resto del backend usa para no filtrar existencia a quien no tiene por qué saberla).
+function assertOwnedByEmployeeOrStaff(req, record) {
+  if (!record) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  if (req.adminUser.role === 'employee' && record.assignedTo !== req.adminUser.uid) {
+    const e = new Error('not-found'); e.code = 'not-found'; throw e;
+  }
+}
+async function notifyAssignee(assignedTo, { type, message, targetCode }) {
+  if (!assignedTo) return;
+  try { await fb.createNotification(assignedTo, { type, message, targetCode }); }
+  catch (err) { console.error('[adminRoutes] No se pudo crear la notificación:', err.message); }
+}
+
+// Lista mínima de empleados para el selector de "asignar a" en Aseo/Mantenimiento — un admin
+// operativo (no solo el dueño) necesita saber a quién puede asignarle una tarea, pero NO debe
+// poder crear/deshabilitar/cambiar el rol de nadie (eso sigue exclusivamente en /users, detrás
+// de requireSuperAdmin). STAFF, no ANY_STAFF: un empleado no necesita ver a otros empleados.
+router.get('/employees', STAFF, asyncHandler(async (_req, res) => {
+  const users = await fb.listUsersWithRoles();
+  res.json(users.filter((u) => u.role === 'employee' && !u.disabled).map((u) => ({ uid: u.uid, email: u.email })));
 }));
-router.post('/cleaning', asyncHandler(async (req, res) => {
-  const { unitType, unitNum, unitLabel, scheduledDate } = req.body || {};
+
+// --- Aseo ---
+router.get('/cleaning', ANY_STAFF, asyncHandler(async (req, res) => {
+  res.json(scopeToEmployee(req, await fb.listCleaningTasks()));
+}));
+router.post('/cleaning', STAFF, asyncHandler(async (req, res) => {
+  const { unitType, unitNum, unitLabel, scheduledDate, assignedTo } = req.body || {};
   const missing = [];
   if (!unitType || !unitNum) missing.push('apartamento');
   if (!scheduledDate) missing.push('fecha programada');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createCleaningTask({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}` });
-  await logAction(req, 'cleaning.create', created.code, { unitType, unitNum });
+  await logAction(req, 'cleaning.create', created.code, { unitType, unitNum, assignedTo: assignedTo || null });
+  await notifyAssignee(assignedTo, { type: 'cleaning', message: `Aseo asignado — ${created.unitLabel} (${created.scheduledDate})`, targetCode: created.code });
   res.status(201).json(created);
 }));
 const CLEANING_STATUSES = new Set(['pendiente', 'en-progreso', 'completado']);
-router.post('/cleaning/:code/status', asyncHandler(async (req, res) => {
+router.post('/cleaning/:code/status', ANY_STAFF, asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!CLEANING_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
   const code = req.params.code.toUpperCase();
+  assertOwnedByEmployeeOrStaff(req, await fb.getCleaningTaskByCode(code));
   const result = await fb.setCleaningStatus(code, status);
   await logAction(req, 'cleaning.set_status', code, { status });
   res.json(result);
 }));
 
 // --- Mantenimiento ---
-router.get('/maintenance', asyncHandler(async (_req, res) => {
-  res.json(await fb.listMaintenanceTickets());
+router.get('/maintenance', ANY_STAFF, asyncHandler(async (req, res) => {
+  res.json(scopeToEmployee(req, await fb.listMaintenanceTickets()));
 }));
-router.post('/maintenance', asyncHandler(async (req, res) => {
-  const { unitType, unitNum, unitLabel, title } = req.body || {};
+router.post('/maintenance', STAFF, asyncHandler(async (req, res) => {
+  const { unitType, unitNum, unitLabel, title, assignedTo } = req.body || {};
   const missing = [];
   if (!unitType || !unitNum) missing.push('apartamento');
   if (!title || !String(title).trim()) missing.push('título');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createMaintenanceTicket({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, reportedBy: req.adminUser.email });
-  await logAction(req, 'maintenance.create', created.code, { unitType, unitNum });
+  await logAction(req, 'maintenance.create', created.code, { unitType, unitNum, assignedTo: assignedTo || null });
+  await notifyAssignee(assignedTo, { type: 'maintenance', message: `Mantenimiento asignado — ${created.unitLabel}: ${created.title}`, targetCode: created.code });
   res.status(201).json(created);
 }));
 const MAINTENANCE_STATUSES = new Set(['abierto', 'en-progreso', 'resuelto']);
-router.post('/maintenance/:code/status', asyncHandler(async (req, res) => {
+router.post('/maintenance/:code/status', ANY_STAFF, asyncHandler(async (req, res) => {
   const { status } = req.body || {};
   if (!MAINTENANCE_STATUSES.has(status)) return res.status(400).json({ error: 'invalid-status' });
   const code = req.params.code.toUpperCase();
+  assertOwnedByEmployeeOrStaff(req, await fb.getMaintenanceTicketByCode(code));
   const result = await fb.setMaintenanceStatus(code, status);
   await logAction(req, 'maintenance.set_status', code, { status });
   res.json(result);
@@ -330,9 +440,22 @@ router.post('/maintenance/:code/status', asyncHandler(async (req, res) => {
 
 // --- Tráfico del sitio público (solo lectura acá — la escritura la hace /track/pageview en
 // app.js, público y sin requireAdminAuth, ver ahí el porqué). ---
-router.get('/site-traffic', asyncHandler(async (req, res) => {
+router.get('/site-traffic', STAFF, asyncHandler(async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90);
   res.json(await fb.getSiteTraffic(days));
+}));
+
+// --- Notificaciones — cada cuenta (owner/admin/employee) solo lee/marca las suyas, nunca las
+// de otro; no hace falta requireSuperAdmin acá porque el propio uid del token ya delimita el
+// alcance (mismo criterio que "reservación por código exacto" en el sitio público: el acceso lo
+// da SER el dueño del recurso, no un rol adicional). ---
+router.get('/notifications', ANY_STAFF, asyncHandler(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  res.json(await fb.listNotificationsForUser(req.adminUser.uid, limit));
+}));
+router.post('/notifications/:id/read', ANY_STAFF, asyncHandler(async (req, res) => {
+  await fb.markNotificationRead(req.adminUser.uid, req.params.id);
+  res.json({ ok: true });
 }));
 
 // --- Bitácora de acciones administrativas — mismo nivel de sensibilidad que /admins y

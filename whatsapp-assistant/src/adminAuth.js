@@ -32,14 +32,45 @@ async function requireAdminAuth(req, res, next) {
   }
 }
 
-// Segunda puerta, SOLO para rutas sensibles (gestionar otros admins, editar datos bancarios) —
-// siempre montada DESPUÉS de requireAdminAuth (necesita req.adminUser ya puesto). Un admin
-// normal pasa requireAdminAuth pero no esto; nunca al revés.
-function requireSuperAdmin(req, res, next) {
-  if (!req.adminUser || req.adminUser.email !== config.superAdminEmail) {
-    return res.status(403).json({ error: 'not-super-admin' });
+// Tercera puerta (RBAC) — SIEMPRE montada después de requireAdminAuth, resuelve el rol UNA vez
+// por request y lo deja en req.adminUser.role para que el resto de la cadena (requireRole) solo
+// lea, nunca vuelva a decidir. OWNER sigue siendo exactamente la misma comparación de string ya
+// documentada en SECURITY.md (decisión consciente, no reabierta acá) — nunca un dato que se
+// pueda crear ni asignar desde ninguna ruta. Cualquier otra cuenta autenticada es 'admin' por
+// defecto (compatibilidad hacia atrás: los admins creados antes de que existiera `roles/` no
+// tienen ningún documento ahí y deben seguir funcionando exactamente igual que hoy) salvo que
+// `roles/{uid}` diga explícitamente 'employee'.
+async function attachRole(req, res, next) {
+  if (req.adminUser.email === config.superAdminEmail) {
+    req.adminUser.role = 'owner';
+    return next();
   }
-  next();
+  try {
+    firebase.init();
+    const role = await firebase.getUserRole(req.adminUser.uid);
+    req.adminUser.role = role === 'employee' ? 'employee' : 'admin';
+    next();
+  } catch (err) {
+    console.error('[adminAuth] Error resolviendo rol:', err.message);
+    res.status(500).json({ error: 'internal-error' });
+  }
 }
 
-module.exports = { requireAdminAuth, requireSuperAdmin };
+// Gate genérico: requireRole('owner','admin') dentro de una ruta ya montada detrás de
+// requireAdminAuth+attachRole. Nunca se llama antes de attachRole (req.adminUser.role no
+// existiría todavía) — ver el orden de montaje en app.js.
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.adminUser || !allowedRoles.includes(req.adminUser.role)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    next();
+  };
+}
+
+// Alias — mismo nombre exportado de siempre (usado por /payment-info, /audit-log desde antes de
+// que existiera RBAC), ahora expresado en términos de rol en vez de repetir la comparación de
+// email por su cuenta. Ningún caller existente necesita cambiar.
+const requireSuperAdmin = requireRole('owner');
+
+module.exports = { requireAdminAuth, attachRole, requireRole, requireSuperAdmin };

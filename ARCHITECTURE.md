@@ -116,6 +116,18 @@ pendiente → admin ve `priceCheck` si el total reportado no coincide con la tar
 Admin SDK) — si dos solicitudes compiten por la misma fecha, solo una gana; la otra recibe
 `conflict` y no deja el sistema en un estado a medias (libera lo que sí alcanzó a reclamar).
 
+**Bug real corregido (2026-09-13) — pago/reserva "exitoso" que nunca llegaba al panel:** cada
+carga de `index.html` empieza en `LocalDataProvider` y solo pasa a `FirebaseDataProvider` cuando
+`categories`/`apartments`/`statusMeta` cargan con éxito (`maybeActivate()`). Si eso no terminaba
+de pasar en toda la sesión de un visitante (red lenta/bloqueada), el flujo completo de reserva Y
+reporte de pago "funcionaba" para el cliente contra `LocalDataProvider` — sin ningún error
+visible — pero nunca tocaba Firebase, así que nunca llegaba al backend ni al panel. Corregido:
+`window.__uso_assertConnected()` bloquea `submitReservation()`, la elección de método de pago y
+el envío del reporte de pago si Firebase no confirma actividad dentro de un margen razonable —
+ahora falla con un aviso claro en vez de simular éxito (principio de la sección 1: nunca mostrar
+como real algo que no llegó al sistema). Un fallo real queda trazado en `clientErrors/` vía
+`POST /track/client-error`, en vez de depender solo de que el cliente se queje.
+
 ## Infraestructura — qué está activo hoy
 
 | Pieza | Estado | Notas |
@@ -128,6 +140,24 @@ Admin SDK) — si dos solicitudes compiten por la misma fecha, solo una gana; la
 | Firebase Cloud Functions | ❌ Preparado, no desplegable | Requiere plan Blaze (pago por uso) — por eso el bot vive en Render |
 | Cloudflare Worker (`email-worker/`) | ⚠️ Construido, no conectado | `EMAIL_WORKER_CONFIG` vacío en `index.html`; el correo real ya sale de `emailService.js` en su lugar |
 
+## Roles (RBAC) — desde 2026-09-13
+
+Tres roles reales en `/admin/api/*` (antes solo admin/super-admin): **OWNER** (dueño, sigue
+siendo `config.superAdminEmail`), **ADMIN** (operativo, sin gestión de usuarios) y **EMPLOYEE**
+(solo sus tareas de aseo/mantenimiento asignadas + notificaciones). Aplicado server-side en
+`adminAuth.js` (`attachRole`/`requireRole`), nunca solo ocultando botones en React. Detalle
+completo, matriz de rutas y qué se dejó fuera de alcance: ver `RBAC.md`.
+
+## Apartamentos — CMS real desde 2026-09-13
+
+`Apartments.tsx` dejó de ser un dashboard de solo lectura: `POST/PUT /admin/api/apartments`
+(dueño únicamente) permite crear/editar tarifas, área, capacidad, camas, característica
+destacada y **visibilidad** (`isVisible`) sin tocar la consola de Firebase. Un apartamento
+oculto (`isVisible: false`) desaparece del catálogo público (`apartmentsByCategory()` en
+`FirebaseDataProvider.js`) pero sigue completo en el panel. Fotos/recorrido 360° siguen siendo
+archivos en `media/` del sitio público, fuera de Firebase — no hay editor de imágenes (este
+proyecto no usa Firebase Storage, por diseño).
+
 ## Decisiones de diseño ya tomadas (no reabrir sin discutirlo)
 
 - Un solo archivo HTML sin build para el sitio — permite deploy sin dependencias, a costa de
@@ -138,3 +168,8 @@ Admin SDK) — si dos solicitudes compiten por la misma fecha, solo una gana; la
   derivado (`isHoldExpired`), evita duplicar el registro.
 - Sin `customers/` como entidad reutilizable — los datos de contacto viven embebidos en cada
   reserva/cita; crear una entidad cliente es una decisión de negocio pendiente, no un olvido.
+- El badge de estado operativo (disponible/en-uso/reservado) YA NO bloquea la solicitud de
+  reserva en el sitio público (`isUnitBookable` en `index.html` siempre devuelve `true`, desde
+  2026-09-13) — la única protección real contra doble-reserva es `checkAvailability()` por
+  rango de fechas exacto, sin cambios. Una unidad "en uso" hoy puede tener fechas futuras
+  perfectamente libres; el badge y la disponibilidad futura son preguntas distintas a propósito.

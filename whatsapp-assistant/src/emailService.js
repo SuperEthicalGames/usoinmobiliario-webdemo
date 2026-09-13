@@ -182,6 +182,95 @@ function reservationCreatedHtml(rec, categoryLabel, lang) {
     + `</div>`;
 }
 
+// Plantilla compartida para los correos de ACTUALIZACIÓN de estado (pago verificado/rechazado,
+// reserva cancelada) — mismo look & feel que reservationCreatedHtml (sección 37 del pedido:
+// "subject consistente", "templates"), pero sin repetir toda la tabla de detalles de la
+// reserva: estos correos son notificaciones puntuales, no un resumen completo. `bodyHtml` es el
+// mensaje específico de cada evento; el resto (header, código, botones) es idéntico siempre.
+function statusUpdateHtml(rec, { titleEs, titleEn, bodyEs, bodyEn }, lang) {
+  const isEs = lang === 'es';
+  const manageUrl = `${config.siteBaseUrl}/#/mi-reserva?code=${encodeURIComponent(rec.code)}`;
+  const waUrl = 'https://wa.me/573136496615?text=' + encodeURIComponent(isEs
+    ? `Hola, tengo una pregunta sobre mi reserva ${rec.code}.`
+    : `Hi, I have a question about my booking ${rec.code}.`);
+  return ''
+    + `<div style="background:#efe7d8;padding:24px 12px;font-family:Georgia,'Times New Roman',serif;color:#20241f;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#f5f0e6;border-radius:14px;overflow:hidden;">`
+    + `<tr><td style="background:#33513f;padding:20px 28px;">`
+    + `<div style="color:#f5f0e6;font-size:13px;letter-spacing:2px;text-transform:uppercase;">USO INMOBILIARIO</div>`
+    + `<div style="color:#f5f0e6;font-size:20px;font-weight:700;margin-top:4px;">${esc(isEs ? titleEs : titleEn)}</div>`
+    + `</td></tr>`
+    + `<tr><td style="padding:24px 28px 8px;">`
+    + `<p style="margin:0 0 14px;font-size:15px;">${isEs ? 'Hola, ' : 'Hi '}${esc(rec.name)}.</p>`
+    + `<p style="margin:0 0 14px;font-size:14.5px;">${esc(isEs ? bodyEs : bodyEn)}</p>`
+    + `</td></tr>`
+    + `<tr><td style="padding:0 28px;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e4d8c3;border-radius:12px;">`
+    + `<tr><td style="padding:16px 20px;text-align:center;">`
+    + `<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#9c7b3f;">${isEs ? 'Código de reserva' : 'Booking code'}</div>`
+    + `<div style="font-size:34px;font-weight:700;letter-spacing:4px;color:#33513f;margin-top:4px;">${esc(rec.code)}</div>`
+    + `<div style="font-size:13px;margin-top:6px;color:#6b6b60;">${esc(rec.unitLabel)}</div>`
+    + `</td></tr>`
+    + `</table>`
+    + `</td></tr>`
+    + `<tr><td style="padding:20px 28px 24px;">`
+    + `<a href="${esc(manageUrl)}" style="display:inline-block;background:#33513f;color:#f5f0e6;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;margin-right:8px;">${isEs ? 'Ver mi reserva' : 'View my booking'}</a>`
+    + `<a href="${esc(waUrl)}" style="display:inline-block;background:#e4d8c3;color:#20241f;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">WhatsApp</a>`
+    + `</td></tr>`
+    + `<tr><td style="padding:16px 28px;background:#e4d8c3;text-align:center;font-size:12px;color:#6b6b60;">`
+    + `Uso Inmobiliario · Laureles, Medellín`
+    + `</td></tr>`
+    + `</table>`
+    + `</div>`;
+}
+
+// Envío ADMINISTRATIVO (no lo dispara el cliente, lo dispara una acción real de un admin ya
+// autenticado — verificar/rechazar pago, cancelar) — a diferencia de
+// sendReservationConfirmation, acá NO hace falta el chequeo de email-match (ese chequeo existe
+// para cuando el propio cliente, sin autenticar, pide el reenvío; una acción de admin ya pasó
+// por requireAdminAuth antes de llegar acá). Mejor esfuerzo: nunca debe tumbar la respuesta real
+// al panel si el correo falla — mismo criterio que logAdminAction. Sin rec.email, no hay a quién
+// mandarle nada; eso no es un error, solo no hay correo que enviar (reservas creadas sin correo
+// no deberían bloquear la acción real de verificar/rechazar/cancelar).
+async function sendStatusUpdate(rec, templates, lang) {
+  const language = lang === 'en' ? 'en' : 'es';
+  if (!rec || !rec.email || !isConfigured()) return { sent: false };
+  const html = statusUpdateHtml(rec, templates, language);
+  const subject = language === 'es' ? templates.subjectEs : templates.subjectEn;
+  try {
+    const info = await getTransporter().sendMail({ from: `"Uso Inmobiliario" <${config.email.gmailUser}>`, to: rec.email, subject, html });
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[emailService] No se pudo enviar '${subject}' a ${rec.email}:`, err.message);
+    return { sent: false };
+  }
+}
+
+function sendPaymentVerified(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `Pago verificado — reserva ${rec.code}`, subjectEn: `Payment verified — booking ${rec.code}`,
+    titleEs: 'Pago verificado', titleEn: 'Payment verified',
+    bodyEs: 'Confirmamos que recibimos tu pago. Tu reserva sigue el proceso normal de confirmación — te avisaremos en cuanto quede confirmada.',
+    bodyEn: "We've confirmed your payment. Your booking continues through the normal confirmation process — we'll let you know once it's confirmed.",
+  }, lang);
+}
+function sendPaymentRejected(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `Pago rechazado — reserva ${rec.code}`, subjectEn: `Payment rejected — booking ${rec.code}`,
+    titleEs: 'Pago rechazado', titleEn: 'Payment rejected',
+    bodyEs: 'No pudimos verificar el pago reportado para esta reserva. Escríbenos por WhatsApp para resolverlo — puede ser un dato del comprobante que no coincide.',
+    bodyEn: "We couldn't verify the payment reported for this booking. Message us on WhatsApp to sort it out — it may just be a mismatched detail on the proof of payment.",
+  }, lang);
+}
+function sendReservationCancelled(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `Reserva cancelada — ${rec.code}`, subjectEn: `Booking cancelled — ${rec.code}`,
+    titleEs: 'Reserva cancelada', titleEn: 'Booking cancelled',
+    bodyEs: 'Tu reserva fue cancelada. Si no lo esperabas o quieres agendar otra fecha, escríbenos por WhatsApp.',
+    bodyEn: "Your booking was cancelled. If this wasn't expected or you'd like to book another date, message us on WhatsApp.",
+  }, lang);
+}
+
 // Límite básico por código — defensa adicional detrás de la verificación de correo de abajo.
 // En memoria (se reinicia si el proceso se reinicia), igual que conversationStore.js —
 // aceptable para este volumen, no es la protección principal.
@@ -245,4 +334,7 @@ async function sendReservationConfirmation({ code, email, lang }) {
   return { sent: true, messageId: info.messageId };
 }
 
-module.exports = { sendReservationConfirmation, reservationCreatedHtml, reservationDisplayStatus, isConfigured };
+module.exports = {
+  sendReservationConfirmation, reservationCreatedHtml, reservationDisplayStatus, isConfigured,
+  sendPaymentVerified, sendPaymentRejected, sendReservationCancelled,
+};

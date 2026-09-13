@@ -6,7 +6,7 @@ const aiAgent = require('./aiAgent');
 const conversationStore = require('./conversationStore');
 const emailService = require('./emailService');
 const { normalizeMarkup } = require('./markup');
-const { requireAdminAuth } = require('./adminAuth');
+const { requireAdminAuth, attachRole } = require('./adminAuth');
 const adminRoutes = require('./adminRoutes');
 const config = require('../config');
 
@@ -197,6 +197,29 @@ app.post('/track/pageview', allowSiteOrigin, trafficLimiter, async (req, res) =>
   }
 });
 
+// Traza real de fallos de conectividad del sitio público (ej. reserva/pago que no pudo
+// confirmar que llegó a Firebase antes de escribir — ver index.html:
+// window.__uso_assertConnected). `kind` es un enum fijo, nunca texto libre del cliente —
+// mismo motivo que sanitizeTrafficPath en pageview, pero acá directamente se rechaza cualquier
+// valor fuera de la lista en vez de sanitizarlo.
+const CLIENT_ERROR_KINDS = new Set([
+  'reservation-not-connected',
+  'payment-method-not-connected',
+  'payment-report-not-connected',
+]);
+app.options('/track/client-error', allowSiteOrigin);
+app.post('/track/client-error', allowSiteOrigin, trafficLimiter, async (req, res) => {
+  const { kind } = req.body || {};
+  if (typeof kind !== 'string' || !CLIENT_ERROR_KINDS.has(kind)) return res.status(400).json({ error: 'invalid-kind' });
+  try {
+    await firebase.recordClientError(kind);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[app] Error registrando client-error:', err);
+    res.status(500).json({ error: 'internal-error' });
+  }
+});
+
 // Panel de administración (usoinmobiliario-middleware) — todo bajo /admin/api/* pasa por CORS
 // del origen del panel (nunca el del sitio público) y por requireAdminAuth (token real de
 // Firebase Auth, verificado server-side). El preflight OPTIONS se registra ANTES y sin
@@ -219,7 +242,7 @@ const adminLimiter = rateLimit({
   message: { error: 'rate-limited' },
 });
 app.options('/admin/api/*', allowAdminOrigin);
-app.use('/admin/api', allowAdminOrigin, adminLimiter, requireAdminAuth, adminRoutes);
+app.use('/admin/api', allowAdminOrigin, adminLimiter, requireAdminAuth, attachRole, adminRoutes);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

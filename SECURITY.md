@@ -5,7 +5,8 @@ administrativo) protege datos y operaciones hoy. Para hallazgos, evidencia y cor
 puntuales, ver `SECURITY_AUDIT.md`. Para la respuesta punto por punto a una auditoría externa
 del 2026-09-11 (incluye el hallazgo más grave detectado hasta ahora — candados permanentes de
 disponibilidad vía escritura directa a `bookedNights`/`bookedVisitSlots`, ya corregido), ver
-`AUDITORIA_EXTERNA_2026_09.md`. Para cómo encajan las piezas, ver `ARCHITECTURE.md`.
+`AUDITORIA_EXTERNA_2026_09.md`. Para cómo encajan las piezas, ver `ARCHITECTURE.md`. Para el
+detalle completo de roles/permisos (OWNER/ADMIN/EMPLOYEE, desde 2026-09-13), ver `RBAC.md`.
 
 ## Actores
 
@@ -13,8 +14,9 @@ disponibilidad vía escritura directa a `bookedNights`/`bookedVisitSlots`, ya co
 |---|---|---|
 | Visitante anónimo (sitio web) | Nada — sin login | Ver catálogo/tarifas/contenido legal público, crear su propia reserva/cita (HOLD), reportar el pago de SU PROPIA reserva, consultar una reserva por código exacto |
 | Cliente por WhatsApp/chat web | Su número de WhatsApp o un `sessionId` opaco de navegador | Lo mismo que el visitante anónimo, a través de lenguaje natural (IA) — nunca más que eso, ver "Superficie de la IA" abajo |
-| Administrador | Cuenta de Firebase Auth (Email/Password) creada a mano por el super admin | Ver/gestionar reservas, visitas, pagos, apartamentos, contratos, aseo, mantenimiento, analítica del sitio |
-| Super administrador | La MISMA autenticación de administrador, pero su email coincide con `SUPER_ADMIN_EMAIL` | Todo lo anterior + crear/deshabilitar otros administradores + editar los datos bancarios reales del negocio |
+| Administrador (ADMIN) | Cuenta de Firebase Auth (Email/Password) creada a mano por el dueño | Ver/gestionar reservas, visitas, pagos, contratos, aseo, mantenimiento, analítica del sitio, apartamentos (solo lectura) |
+| Empleado (EMPLOYEE) | La MISMA autenticación, pero con `roles/{uid}.role === 'employee'` (desde 2026-09-13) | Solo sus propias tareas de aseo/mantenimiento asignadas y sus notificaciones — nada de reservas, pagos ni datos financieros. Ver `RBAC.md` |
+| Dueño (OWNER / super administrador) | La MISMA autenticación, pero su email coincide con `SUPER_ADMIN_EMAIL` | Todo lo anterior + crear/deshabilitar/cambiar el rol de cualquier cuenta + editar apartamentos + editar los datos bancarios reales del negocio + Bitácora |
 | Sistema (Admin SDK) | Cuenta de servicio de Firebase (`whatsapp-assistant`) | Acceso total a la Realtime Database — las Rules no aplican a este actor; toda garantía que las Rules dan al cliente web se reimplementa a mano en `firebase.js` para este camino |
 
 No existe "cliente autenticado": el sitio público nunca pide login. `authenticated == authorized`
@@ -56,9 +58,21 @@ token coincida con el rol correcto (`requireSuperAdmin`), nunca solo `auth != nu
   `expiresAt`) podía crear.
 - Bitácora (`auditLog/`, desde 2026-09-12): cada acción administrativa que cambia estado real
   (confirmar/rechazar reserva, verificar pago, crear/revocar admin, editar datos bancarios,
-  etc.) queda registrada con quién/qué/cuándo — solo lectura del super admin
+  etc.) queda registrada con quién/qué/cuándo — solo lectura del dueño
   (`GET /admin/api/audit-log`), solo escritura del Admin SDK (ninguna regla de cliente la
-  permite). Ver `whatsapp-assistant/src/firebase.js` (`logAdminAction`/`listAuditLog`).
+  permite). Desde 2026-09-13 cada entrada trae `domain` (reserva/financiero/apartamento/admin/
+  operaciones, derivado del prefijo de la acción) para separar la vista de reservas de la
+  financiera sin dos árboles distintos (secciones 18-19 de la evolución del pedido). Ver
+  `whatsapp-assistant/src/firebase.js` (`logAdminAction`/`domainForAction`/`listAuditLog`).
+- RBAC (`roles/{uid}`, desde 2026-09-13): `attachRole` resuelve OWNER/ADMIN/EMPLOYEE en cada
+  request antes de llegar a cualquier ruta; `requireRole(...)` es el único punto de decisión de
+  acceso por rol. Detalle completo en `RBAC.md`.
+- Idempotencia (`idempotency/{key}`, desde 2026-09-13): `POST /admin/api/reservations` acepta un
+  header `Idempotency-Key` — un doble-click o un reintento de red con la misma clave devuelve el
+  registro ya creado en vez de duplicarlo. Reclamo atómico vía transacción de Firebase (mismo
+  criterio que `claimNightAtomically`). Alcance: rutas admin del backend; el sitio público sigue
+  escribiendo reservas/pagos directo a Firebase desde el navegador, un mecanismo distinto, fuera
+  de alcance de este cambio (ver `AUDITORIA_EXTERNA_2026_09.md` §5).
 
 ## Gestión de secretos
 

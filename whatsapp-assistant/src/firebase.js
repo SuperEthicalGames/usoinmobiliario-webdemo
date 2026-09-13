@@ -123,6 +123,94 @@ async function getApartment(typeKey, num) {
   return findApartmentByNum(num);
 }
 
+// Antes esto solo se editaba a mano en la consola de Firebase (mismo motivo documentado ya en
+// setPaymentInfo) — el pedido reabre esto a propósito: la sección Apartamentos del panel debía
+// ser el CMS real del catálogo, no un dashboard de solo lectura.
+//
+// `status`/`isVisible` van SIEMPRE (aunque no vengan en el patch) para no dejarlos en un
+// estado ambiguo: status nunca debe faltar (rompe effectiveStatus/catalog), isVisible ausente
+// se trata como true en todo lector, así que se normaliza a un booleano explícito en cuanto se
+// toca la unidad desde acá, en vez de dejarlo implícito para siempre.
+const APARTMENT_STATUSES = new Set(['disponible', 'en-uso', 'reservado']);
+function sanitizeApartmentPatch(data, existing) {
+  const out = { ...existing };
+  if (data.status !== undefined) {
+    if (!APARTMENT_STATUSES.has(data.status)) { const e = new Error('invalid-status'); e.code = 'invalid'; throw e; }
+    out.status = data.status;
+  }
+  if (data.isVisible !== undefined) out.isVisible = !!data.isVisible;
+  if (data.area !== undefined) out.area = Number(data.area) || 0;
+  if (data.maxPersons !== undefined) out.maxPersons = Number(data.maxPersons) || 1;
+  if (data.baths !== undefined) out.baths = Number(data.baths) || 1;
+  if (data.beds !== undefined) out.beds = Array.isArray(data.beds) ? data.beds.map((b) => String(b)) : [];
+  if (data.feature !== undefined) {
+    out.feature = { es: String(data.feature?.es || '').trim(), en: String(data.feature?.en || '').trim() };
+  }
+  if (data.rates !== undefined) {
+    const r = data.rates || {};
+    out.rates = {
+      ...(Array.isArray(r.one) ? { one: r.one.map(Number) } : {}),
+      ...(Array.isArray(r.two) ? { two: r.two.map(Number) } : {}),
+      ...(Array.isArray(r.extra) ? { extra: r.extra.map(Number) } : {}),
+      ...(r.month != null ? { month: Number(r.month) } : {}),
+    };
+  }
+  if (data.promo !== undefined) out.promo = !!data.promo;
+  if (data.flagship !== undefined) out.flagship = !!data.flagship;
+  return out;
+}
+async function updateApartment(typeKey, num, data) {
+  const key = unitKeyOf(typeKey, num);
+  const snap = await dbGet(`apartments/${key}`);
+  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  const updated = sanitizeApartmentPatch(data, snap.val());
+  await dbSet(`apartments/${key}`, updated);
+  return { ...updated, _key: key };
+}
+async function createApartment(typeKey, num, data) {
+  const key = unitKeyOf(typeKey, num);
+  const snap = await dbGet(`apartments/${key}`);
+  if (snap.exists()) { const e = new Error('already-exists'); e.code = 'conflict'; throw e; }
+  const base = { typeKey, num: String(num), status: 'disponible', isVisible: true, area: 0, maxPersons: 1, baths: 1, beds: [] };
+  const created = sanitizeApartmentPatch(data, base);
+  await dbSet(`apartments/${key}`, created);
+  return { ...created, _key: key };
+}
+
+// --- Idempotencia (sección 25 del pedido, ya señalada como pendiente legítima en
+// AUDITORIA_EXTERNA_2026_09.md §5) — un doble-click o un reintento de red en una operación
+// administrativa no debe crear/ejecutar la acción dos veces. Reclamo atómico vía transacción
+// (mismo criterio que claimNightAtomically para noches): dos requests con la MISMA clave no
+// pueden ganar ambas la carrera de "quién ejecuta de verdad". Alcance de esta sesión: rutas
+// admin del backend (/admin/api/*) — el sitio público escribe reservas/pagos directo a Firebase
+// desde el navegador, un mecanismo distinto (fuera de alcance, ver plan). ---
+async function withIdempotency(key, fn) {
+  if (!key) return fn(); // sin clave, comportamiento de siempre — no se puede deduplicar sin ella
+  const ref = db().ref(`idempotency/${key}`);
+  const claim = await withTimeout(ref.transaction((current) => {
+    if (current) return; // ya reclamada — abortar sin tocarla
+    return { status: 'pending', createdAt: Date.now() };
+  }), 'idempotency.claim');
+  if (!claim.committed) {
+    const existing = await dbGet(`idempotency/${key}`);
+    const val = existing.val();
+    if (val && val.status === 'done') return val.result;
+    // Todavía en vuelo (mismo request real duplicado, no un reintento tras fallo) — no bloquear
+    // indefinidamente al segundo request, que reporte conflicto y el cliente decida reintentar.
+    const e = new Error('duplicate-request-in-progress'); e.code = 'conflict'; throw e;
+  }
+  try {
+    const result = await fn();
+    await dbSet(`idempotency/${key}`, { status: 'done', result, createdAt: Date.now() });
+    return result;
+  } catch (err) {
+    // La operación real falló — liberar la clave para permitir un reintento genuino del cliente
+    // (no queremos que un fallo de red deje la clave "quemada" para siempre).
+    await ref.remove().catch(() => {});
+    throw err;
+  }
+}
+
 async function getStatusMeta() {
   const snap = await dbGet('statusMeta');
   return snap.val() || {};
@@ -610,6 +698,56 @@ async function setAdminUserDisabled(uid, disabled) {
   return { uid: user.uid, email: user.email, disabled: user.disabled, createdAt: user.metadata.creationTime, lastSignInAt: user.metadata.lastSignInTime || null };
 }
 
+// --- Roles (RBAC) — OWNER nunca vive acá, es siempre config.superAdminEmail comparado en
+// adminAuth.attachRole (decisión ya tomada en SECURITY.md, no reabierta). Este nodo solo
+// distingue 'employee' de 'admin' para el resto de las cuentas; ausencia de documento =
+// 'admin' (compatibilidad hacia atrás con cuentas creadas antes de que RBAC existiera). ---
+async function getUserRole(uid) {
+  const snap = await dbGet(`roles/${uid}`);
+  const val = snap.val();
+  return val ? val.role : null;
+}
+async function setUserRole(uid, role, actorEmail) {
+  await dbSet(`roles/${uid}`, { role, createdAt: new Date().toISOString(), createdBy: actorEmail || null });
+  return { uid, role };
+}
+// Crea la cuenta de Firebase Auth (misma función de siempre) y le adjunta un rol explícito —
+// usado tanto para admins operativos como para empleados, la única diferencia es el rol.
+async function createStaffUser(email, password, role, actorEmail) {
+  const user = await createAdminUser(email, password);
+  await setUserRole(user.uid, role, actorEmail);
+  return { ...user, role };
+}
+// Fusiona las cuentas reales de Firebase Auth con su rol — el dueño nunca aparece con un
+// documento en roles/, se deriva comparando el email igual que attachRole.
+async function listUsersWithRoles() {
+  const [authUsers, rolesSnap] = await Promise.all([listAdminUsers(), dbGet('roles')]);
+  const roles = rolesSnap.val() || {};
+  return authUsers.map((u) => ({
+    ...u,
+    role: u.email === config.superAdminEmail ? 'owner' : (roles[u.uid] && roles[u.uid].role === 'employee' ? 'employee' : 'admin'),
+  }));
+}
+
+// --- Notificaciones — un nodo por destinatario (nunca compartido entre cuentas, cada quien
+// solo puede leer/marcar las suyas — ver requireRole+chequeo de dueño en adminRoutes.js). Se
+// crean desde el servidor únicamente (ej. al asignar una tarea de aseo/mantenimiento), nunca
+// directo desde el cliente. ---
+async function createNotification(uid, { type, message, targetCode }) {
+  const ref = db().ref(`notifications/${uid}`).push();
+  const entry = { type, message, targetCode: targetCode || null, read: false, createdAt: new Date().toISOString() };
+  await withTimeout(ref.set(entry), 'notification.create');
+  return { id: ref.key, ...entry };
+}
+async function listNotificationsForUser(uid, limit) {
+  const snap = await withTimeout(db().ref(`notifications/${uid}`).orderByKey().limitToLast(limit || 50).get(), 'notifications.list');
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, entry]) => ({ id, ...entry })).reverse();
+}
+async function markNotificationRead(uid, id) {
+  await dbSet(`notifications/${uid}/${id}/read`, true);
+}
+
 // --- Contratos (arriendo formal — cubre estadías largas que van más allá de una reserva
 // corta con HOLD; el mismo apartamento puede tener reservas Y un contrato activo, ninguno de
 // los dos bloquea al otro automáticamente, es el admin quien concilia fechas a mano). ---
@@ -667,13 +805,17 @@ async function listCleaningTasks() {
   const snap = await dbGet('cleaningTasks');
   return Object.values(snap.val() || {});
 }
-async function setCleaningStatus(code, status) {
+async function getCleaningTaskByCode(code) {
   const snap = await dbGet(`cleaningTasks/${code}`);
-  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  return snap.exists() ? snap.val() : null;
+}
+async function setCleaningStatus(code, status) {
+  const task = await getCleaningTaskByCode(code);
+  if (!task) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
   const updates = { [`cleaningTasks/${code}/status`]: status };
   if (status === 'completado') updates[`cleaningTasks/${code}/completedAt`] = new Date().toISOString();
   await dbUpdate(updates);
-  return { ...snap.val(), status, completedAt: status === 'completado' ? new Date().toISOString() : snap.val().completedAt };
+  return { ...task, status, completedAt: status === 'completado' ? new Date().toISOString() : task.completedAt };
 }
 
 // --- Mantenimiento (fallas/pedidos reportados sobre un apartamento) ---
@@ -686,6 +828,7 @@ async function createMaintenanceTicket(data) {
     title: String(data.title || '').trim(),
     description: data.description ? String(data.description).trim() : '',
     priority: ['baja', 'media', 'alta'].includes(data.priority) ? data.priority : 'media',
+    assignedTo: data.assignedTo ? String(data.assignedTo).trim() : '',
     status: 'abierto',
     reportedBy: data.reportedBy || '',
     createdAt: new Date().toISOString(),
@@ -698,13 +841,17 @@ async function listMaintenanceTickets() {
   const snap = await dbGet('maintenanceTickets');
   return Object.values(snap.val() || {});
 }
-async function setMaintenanceStatus(code, status) {
+async function getMaintenanceTicketByCode(code) {
   const snap = await dbGet(`maintenanceTickets/${code}`);
-  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  return snap.exists() ? snap.val() : null;
+}
+async function setMaintenanceStatus(code, status) {
+  const ticket = await getMaintenanceTicketByCode(code);
+  if (!ticket) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
   const updates = { [`maintenanceTickets/${code}/status`]: status };
   if (status === 'resuelto') updates[`maintenanceTickets/${code}/resolvedAt`] = new Date().toISOString();
   await dbUpdate(updates);
-  return { ...snap.val(), status, resolvedAt: status === 'resuelto' ? new Date().toISOString() : snap.val().resolvedAt };
+  return { ...ticket, status, resolvedAt: status === 'resuelto' ? new Date().toISOString() : ticket.resolvedAt };
 }
 
 // --- Check-in / check-out real (marca de hora real de cuándo el huésped de verdad llegó/se
@@ -765,17 +912,44 @@ async function getSiteTraffic(days) {
   }));
 }
 
+// Contador agregado (día + tipo conocido) de fallos de conectividad reales del sitio público —
+// ej. un cliente que no pudo confirmar su reserva/pago porque esta sesión seguía en
+// LocalDataProvider (ver index.html: window.__uso_assertConnected). `kind` viene siempre de un
+// enum fijo validado en app.js, nunca texto libre del cliente — mismo criterio anti-abuso que
+// sanitizeTrafficPath, pero acá no hace falta sanitizar nada porque no se acepta nada fuera del
+// enum. Deja una traza real en vez de depender solo de que el cliente se queje.
+async function recordClientError(kind) {
+  const day = todayIsoBogota();
+  await dbTransaction(`clientErrors/${day}/${kind}`, (current) => (current || 0) + 1);
+}
+
 // --- Bitácora de acciones administrativas — quién hizo qué y cuándo, sobre qué reserva/
 // contrato/tarea/admin. Ningún hallazgo de seguridad depende de esto (las Rules/requireAdminAuth
 // ya son la barrera real), es trazabilidad para cuando algo hay que auditar después del hecho
 // (sección 34 de la auditoría externa 2026-09-11: "falta auditoría de acciones"). Nunca debe
 // romper la acción real que está registrando — mejor esfuerzo, un fallo de log se traga y se
 // loguea a consola, no se propaga como error 500 al panel. ---
+// Separa la bitácora en "reservas" vs "financiero" vs el resto (secciones 18-19 del pedido)
+// sin construir dos árboles distintos — se deriva del PREFIJO del nombre de la acción (ya
+// consistente en todos los call sites de adminRoutes.js: 'reservation.*', 'payment.*', etc.),
+// así que ningún call site nuevo tiene que acordarse de pasar el dominio a mano.
+const ACTION_DOMAINS = {
+  reservation: 'reservation', record: 'reservation',
+  payment: 'financial', payment_info: 'financial',
+  user: 'admin', admin: 'admin',
+  apartment: 'apartment',
+  contract: 'operations', cleaning: 'operations', maintenance: 'operations',
+};
+function domainForAction(action) {
+  const prefix = String(action || '').split('.')[0];
+  return ACTION_DOMAINS[prefix] || 'other';
+}
 async function logAdminAction({ actorUid, actorEmail, action, target, metadata }) {
   const entry = {
     actorUid: actorUid || null,
     actorEmail: actorEmail || null,
     action,
+    domain: domainForAction(action),
     target: target || null,
     metadata: metadata || null,
     timestamp: nowEpochMs(),
@@ -809,12 +983,24 @@ module.exports = {
   getCategories,
   getApartments,
   getApartment,
+  updateApartment,
+  createApartment,
   getStatusMeta,
+  withIdempotency,
+  sanitizeApartmentPatch,
+  domainForAction,
   getPaymentInfo,
   setPaymentInfo,
   listAdminUsers,
   createAdminUser,
   setAdminUserDisabled,
+  getUserRole,
+  setUserRole,
+  createStaffUser,
+  listUsersWithRoles,
+  createNotification,
+  listNotificationsForUser,
+  markNotificationRead,
   getReservationByCode,
   getUnitBookings,
   checkAvailability,
@@ -842,14 +1028,17 @@ module.exports = {
   setContractStatus,
   createCleaningTask,
   listCleaningTasks,
+  getCleaningTaskByCode,
   setCleaningStatus,
   createMaintenanceTicket,
   listMaintenanceTickets,
+  getMaintenanceTicketByCode,
   setMaintenanceStatus,
   checkInReservation,
   checkOutReservation,
   recordPageview,
   getSiteTraffic,
+  recordClientError,
   logAdminAction,
   listAuditLog,
 };

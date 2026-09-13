@@ -78,6 +78,11 @@ function apartmentsByCategory(typeKey){
   Object.keys(cache.apartments).forEach(function(key){
     var apt = cache.apartments[key];
     if(!apt || apt.typeKey !== typeKey) return;
+    // Ocultar del catálogo público (sección 9 del pedido) — ausente/undefined se trata como
+    // visible (compatibilidad hacia atrás: unidades ya existentes nunca tuvieron este campo).
+    // El middleware SIGUE viendo la unidad completa (lee /admin/api/apartments, no este
+    // archivo) — ocultar es solo de cara al cliente final, nunca de cara a quien administra.
+    if(apt.isVisible === false) return;
     var rates = apt.rates || {};
     out.push({
       num: apt.num, status: effectiveStatus(typeKey, apt.num, apt.status), area: apt.area, maxPersons: apt.maxPersons,

@@ -837,6 +837,7 @@
 
     bookNow:{es:"Reservar ahora",en:"Book now"},
     bookUnavailable:{es:"Esta unidad no está disponible para reserva en línea en este momento.",en:"This unit isn't available for online booking right now."},
+    bookNoteBusy:{es:"Esta unidad está en uso u ocupada en fechas próximas — puedes solicitar igual: solo se bloquean las fechas exactas que ya tengan un pago confirmado.",en:"This unit is currently in use or has upcoming bookings — you can still request it: only the exact dates already backed by a confirmed payment are blocked."},
     bkStepDates:{es:"Fechas",en:"Dates"},
     bkStepInfo:{es:"Tus datos",en:"Your info"},
     bkStepReview:{es:"Confirmar",en:"Confirm"},
@@ -889,6 +890,8 @@
     bkSubmitError:{es:"No pudimos guardar tu solicitud. Verifica tu conexión e inténtalo de nuevo.",en:"We couldn't save your request. Check your connection and try again."},
     bkSubmitErrorDates:{es:"Esas fechas ya no están disponibles para esta unidad — elige otras fechas.",en:"Those dates are no longer available for this unit — pick different dates."},
     bkSubmitErrorSlot:{es:"Ese horario ya fue tomado para esta unidad — elige otro día u hora.",en:"That time slot was just taken for this unit — pick another day or time."},
+    offlineSubmitError:{es:"No pudimos confirmar la conexión con nuestro sistema. Recarga la página e inténtalo de nuevo — así evitamos que tu solicitud se pierda.",en:"We couldn't confirm the connection to our system. Please reload the page and try again — this avoids losing your request."},
+    miReservaOfflineWarning:{es:"⚠️ No pudimos confirmar la conexión con nuestro sistema en esta visita — si buscas un código y no aparece, recarga la página antes de asumir que no existe.",en:"⚠️ We couldn't confirm the connection to our system on this visit — if you search a code and it doesn't show up, reload the page before assuming it doesn't exist."},
     bkDoneLabel:{es:"Código de reserva",en:"Booking code"},
     typeTagReserva:{es:"Reserva",en:"Booking"},
     typeTagCita:{es:"Visita",en:"Visit"},
@@ -1476,6 +1479,37 @@ var HERO_IMG = "media/hero.jpg";
     DataProvider = provider;
     route();
   };
+  // Bug real reportado: un cliente puede completar todo el flujo de reserva/pago sin ningún
+  // error visible mientras esta sesión sigue en LocalDataProvider (Firebase configurado pero
+  // sin terminar de activarse todavía — ver maybeActivate() en FirebaseDataProvider.js) — la
+  // reserva/pago "funciona" para el cliente pero nunca llega a Firebase, así que nunca llega al
+  // panel. window.FirebaseDataProvider existe en cuanto el módulo carga (aunque todavía no esté
+  // activo) — solo si NUNCA existe (sitio sin Firebase configurado, ej. demo/portfolio) se
+  // preserva el comportamiento silencioso de siempre, a propósito (ver ARCHITECTURE.md).
+  window.__uso_isFirebaseActive = function(){ return DataProvider !== LocalDataProvider; };
+  window.__uso_isFirebaseConfigured = function(){ return typeof window.FirebaseDataProvider !== 'undefined'; };
+  // Espera hasta maxMs a que Firebase termine de activarse antes de rendirse — un cliente que
+  // completa el formulario muy rápido no debería fallar solo porque los tres listeners
+  // (categories/apartments/statusMeta) todavía no respondieron. Resuelve true en cuanto se
+  // activa, false si se agota el tiempo.
+  window.__uso_waitForFirebaseActivation = function(maxMs){
+    if(window.__uso_isFirebaseActive()) return Promise.resolve(true);
+    return new Promise(function(resolve){
+      var waited = 0, step = 250;
+      var iv = setInterval(function(){
+        waited += step;
+        if(window.__uso_isFirebaseActive()){ clearInterval(iv); resolve(true); }
+        else if(waited >= maxMs){ clearInterval(iv); resolve(false); }
+      }, step);
+    });
+  };
+  // Punto único que usan submitReservation()/mountPaymentSection() antes de escribir nada
+  // crítico — ver §1 del pedido ("no fallback silencioso a información ficticia"). Devuelve
+  // true si es seguro proceder (Firebase activo, o nunca configurado — modo demo intencional).
+  window.__uso_assertConnected = function(maxMs){
+    if(!window.__uso_isFirebaseConfigured()) return Promise.resolve(true);
+    return window.__uso_waitForFirebaseActivation(maxMs);
+  };
   // También refresca el calendario de ocupación del modal de reserva si sigue abierto — así
   // una fecha que otro visitante acaba de tomar se marca como ocupada sin que este visitante
   // tenga que recargar la página (mismo espíritu "en tiempo real" que ya usan los badges del
@@ -1572,7 +1606,13 @@ var HERO_IMG = "media/hero.jpg";
       if(dow === 6) return SATURDAY_SLOTS;
       return WEEKDAY_SLOTS;
     }
-    function isUnitBookable(unit){ return unit.status === 'disponible'; }
+    // Sección 12 del pedido: "en uso"/"reservado" ya NO bloquea la solicitud — ese badge es
+    // solo el estado operativo de HOY (¿hay alguien ahí ahora mismo?), no dice nada sobre si
+    // una fecha FUTURA puntual está libre. La única protección real contra doble-reserva sigue
+    // siendo checkAvailability() por rango de fechas exacto (una reserva ya pagada/confirmada
+    // sigue bloqueando esas noches puntuales, eso no cambia). Se conserva la función (no solo
+    // `true` en cada call site) para no perder el nombre semántico ni el punto único de control.
+    function isUnitBookable(_unit){ return true; }
     // Disponibilidad real para un rango de fechas concreto — distinta del badge
     // disponible/en-uso/reservado de la unidad (ver DataProvider.getApartments): esta
     // consulta considera TODOS los HOLDs/reservas vigentes (no solo las confirmadas) para
@@ -1736,6 +1776,20 @@ var HERO_IMG = "media/hero.jpg";
       }).catch(function(){});
     }catch(e){ /* nunca debe romper la navegación real */ }
   }
+
+  // Traza real de cuándo window.__uso_assertConnected bloqueó una escritura crítica (reserva o
+  // pago) por no poder confirmar Firebase — mismo criterio fire-and-forget que trackPageview,
+  // nunca debe interferir con el aviso que el cliente ya está viendo. `kind` debe coincidir con
+  // el enum fijo de app.js (CLIENT_ERROR_KINDS).
+  function trackClientError(kind){
+    try{
+      fetch(BACKEND_BASE_URL + '/track/client-error', {
+        method: 'POST', keepalive: true, headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ kind: kind })
+      }).catch(function(){});
+    }catch(e){ /* nunca debe romper la UI real */ }
+  }
+  window.__uso_trackClientError = trackClientError;
 
   // Reemplaza el Worker de Cloudflare + Amazon SES (bloqueado por depender de una cuenta AWS
   // sin acceso confiable) — ahora es una ruta del mismo backend de Render, que envía por SMTP
@@ -2590,6 +2644,24 @@ var HERO_IMG = "media/hero.jpg";
       if(errEl) errEl.style.display = 'none';
       if(btn){ btn.disabled = true; btn.textContent = t('bkSubmitting'); }
 
+      // Bug real reportado: sin este chequeo, una reserva podía "generarse" con éxito visible
+      // para el cliente mientras esta sesión seguía en LocalDataProvider — nunca llegaba a
+      // Firebase ni al panel. Se espera un poco por si Firebase todavía está activándose antes
+      // de rendirse (ver window.__uso_assertConnected).
+      window.__uso_assertConnected(6000).then(function(connected){
+        if(!connected){
+          window.__uso_trackClientError('reservation-not-connected');
+          if(!state || state.step !== 3) return;
+          if(btn){ btn.disabled = false; btn.textContent = (isVisit?t('bkConfirmBtnVisit'):t('bkConfirmBtn'))+' →'; }
+          if(errEl){ errEl.textContent = t('offlineSubmitError'); errEl.style.display = 'block'; }
+          return;
+        }
+        doSubmitReservation();
+      });
+    }
+
+    function doSubmitReservation(){
+      var isVisit = state.mode === 'cita';
       var payload = {
         unitType: state.unit ? state.typeKey : undefined,
         unitNum: state.unit ? state.unit.num : undefined,
@@ -3186,6 +3258,7 @@ var HERO_IMG = "media/hero.jpg";
       + '<p style="opacity:0.78;margin-top:10px;max-width:60ch;">'+t('miReservaSub')+'</p>'
       + '</div></section>';
     html += '<section class="unit-amenities"><div class="wrap">'
+      + '<div id="connSyncWarning" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:10px;background:#fff3cd;color:#7a5b00;font-size:13.5px;"></div>'
       + '<form id="lookupForm" class="lookup-form">'
       +   '<input type="text" id="lookupInput" maxlength="8" placeholder="'+t('miReservaPh')+'" value="'+BOOKING.escHtml(prefillCode||'')+'" autocomplete="off">'
       +   '<button type="submit" class="btn btn-primary">'+t('miReservaBtn')+'</button>'
@@ -3336,13 +3409,23 @@ var HERO_IMG = "media/hero.jpg";
       function chooseMethod(method){
         if(errEl){ errEl.style.display = 'none'; errEl.textContent = ''; }
         transferBtn.disabled = true; cashBtn.disabled = true;
-        PaymentProvider[method].select(res.code).then(function(){
-          res.paymentMethod = method;
-          mountPaymentSection(res, containerId, onUpdate);
-        }).catch(function(err){
-          console.error('No se pudo guardar el método de pago:', err);
-          transferBtn.disabled = false; cashBtn.disabled = false;
-          if(errEl){ errEl.textContent = t('payMethodSaveError'); errEl.style.display = 'block'; }
+        // Mismo chequeo que submitReservation() — elegir método (y, para efectivo, quedar
+        // "a la espera de admin") no debe poder ocurrir solo contra LocalDataProvider.
+        window.__uso_assertConnected(6000).then(function(connected){
+          if(!connected){
+            window.__uso_trackClientError('payment-method-not-connected');
+            transferBtn.disabled = false; cashBtn.disabled = false;
+            if(errEl){ errEl.textContent = t('offlineSubmitError'); errEl.style.display = 'block'; }
+            return;
+          }
+          PaymentProvider[method].select(res.code).then(function(){
+            res.paymentMethod = method;
+            mountPaymentSection(res, containerId, onUpdate);
+          }).catch(function(err){
+            console.error('No se pudo guardar el método de pago:', err);
+            transferBtn.disabled = false; cashBtn.disabled = false;
+            if(errEl){ errEl.textContent = t('payMethodSaveError'); errEl.style.display = 'block'; }
+          });
         });
       }
       if(transferBtn) transferBtn.addEventListener('click', function(){ chooseMethod('bank_transfer'); });
@@ -3386,16 +3469,27 @@ var HERO_IMG = "media/hero.jpg";
         if(proofUrl) report.proofUrl = proofUrl;
         var submitBtn = document.getElementById('prSubmitBtn');
         submitBtn.disabled = true; submitBtn.textContent = t('prSubmitting');
-        ReservationService.reportPayment(res.code, report).then(function(){
-          res.paymentStatus = 'submitted';
-          res.paymentReport = report;
-          onUpdate();
-        }).catch(function(err){
-          console.error('No se pudo reportar el pago:', err);
-          var submitBtn2 = document.getElementById('prSubmitBtn');
-          var errEl2 = document.getElementById('paymentReportError');
-          if(submitBtn2){ submitBtn2.disabled = false; submitBtn2.textContent = t('prSubmitBtn'); }
-          if(errEl2){ errEl2.textContent = t('prSubmitError'); errEl2.style.display = 'block'; }
+        // Bug real reportado: este es el punto exacto donde un pago reportado podía "guardarse"
+        // con éxito solo en localStorage, sin llegar nunca a Firebase/Pagos. Ver
+        // window.__uso_assertConnected más arriba en este archivo.
+        window.__uso_assertConnected(6000).then(function(connected){
+          if(!connected){
+            window.__uso_trackClientError('payment-report-not-connected');
+            submitBtn.disabled = false; submitBtn.textContent = t('prSubmitBtn');
+            errEl.textContent = t('offlineSubmitError'); errEl.style.display = 'block';
+            return;
+          }
+          ReservationService.reportPayment(res.code, report).then(function(){
+            res.paymentStatus = 'submitted';
+            res.paymentReport = report;
+            onUpdate();
+          }).catch(function(err){
+            console.error('No se pudo reportar el pago:', err);
+            var submitBtn2 = document.getElementById('prSubmitBtn');
+            var errEl2 = document.getElementById('paymentReportError');
+            if(submitBtn2){ submitBtn2.disabled = false; submitBtn2.textContent = t('prSubmitBtn'); }
+            if(errEl2){ errEl2.textContent = t('prSubmitError'); errEl2.style.display = 'block'; }
+          });
         });
       });
     });
@@ -3515,6 +3609,14 @@ var HERO_IMG = "media/hero.jpg";
     var input = document.getElementById('lookupInput');
     var resultEl = document.getElementById('lookupResult');
     var recentWrap = document.getElementById('recentWrap');
+
+    // Transparencia (sección 1 del pedido): si Firebase está configurado pero esta visita no
+    // llegó a activarse, avisar en vez de dejar que un "no encontrado" se lea como "no existe".
+    var connWarnEl = document.getElementById('connSyncWarning');
+    if(connWarnEl && window.__uso_isFirebaseConfigured() && !window.__uso_isFirebaseActive()){
+      connWarnEl.textContent = t('miReservaOfflineWarning');
+      connWarnEl.style.display = 'block';
+    }
 
     function doSearch(code){
       if(miReservaCountdownInterval){ clearInterval(miReservaCountdownInterval); miReservaCountdownInterval = null; }
@@ -3716,12 +3818,9 @@ var HERO_IMG = "media/hero.jpg";
       +   '<div class="spec-row"><span class="k">'+t('area')+'</span><span class="v">'+unit.area+' m²</span></div>'
       +   '<div class="spec-row"><span class="k">'+t('specMax')+'</span><span class="v">'+unit.maxPersons+'</span></div>'
       +   '<div class="spec-row" style="border:none;padding-top:2px;"><div class="spec-price">'+fmtCOP(unit.month)+'<small>COP '+t('desdeMes')+' · '+t('largaCorta')+'</small></div></div>'
-      +   (AvailabilityService.isUnitBookable(unit)
-            ? '<button type="button" class="btn btn-primary" id="bookNowBtn" style="justify-content:center;margin-top:2px;">'+t('bookNow')+' →</button>'
-            : '<p class="catalog-note" style="margin:2px 0 0;">'+t('bookUnavailable')+'</p>')
-      +   (AvailabilityService.isUnitBookable(unit)
-            ? '<button type="button" class="btn btn-ghost" id="quoteVisitBtn" style="justify-content:center;">'+t('quoteVisit')+'</button>'
-            : '')
+      +   '<button type="button" class="btn btn-primary" id="bookNowBtn" style="justify-content:center;margin-top:2px;">'+t('bookNow')+' →</button>'
+      +   '<button type="button" class="btn btn-ghost" id="quoteVisitBtn" style="justify-content:center;">'+t('quoteVisit')+'</button>'
+      +   (unit.status !== 'disponible' ? '<p class="catalog-note" style="margin:6px 0 0;">'+t('bookNoteBusy')+'</p>' : '')
       + '</div></div>'
       + '</div></section>';
 
@@ -3774,10 +3873,7 @@ var HERO_IMG = "media/hero.jpg";
       +   '<div class="room-side" id="roomInfo">' + roomInfoHTML(rooms[idx]) + '</div>'
       + '</div>'
       + '<p style="opacity:0.55;font-size:12.5px;margin-top:12px;">'+t('catalogNote')+'</p>'
-      + '<div style="margin-top:14px;">' + (AvailabilityService.isUnitBookable(unit)
-          ? '<button type="button" class="btn btn-primary" id="tourBookBtn">'+t('bookNow')+' →</button>'
-          : '<a class="btn btn-primary" href="https://wa.me/573136496615?text='+encodeURIComponent('Hola, quisiera información sobre el '+unitLabel(unit)+', ¡gracias!')+'" target="_blank" rel="noopener">'+t('consultar')+' →</a>'
-        ) + '</div>'
+      + '<div style="margin-top:14px;"><button type="button" class="btn btn-primary" id="tourBookBtn">'+t('bookNow')+' →</button></div>'
       + '</div></section>';
 
     return {html:html, rooms:rooms, idx:idx, key:key, unitCode:unitCode};
