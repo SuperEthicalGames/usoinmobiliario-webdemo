@@ -146,6 +146,14 @@ router.get('/categories', ANY_STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getCategories());
 }));
 
+// Editar un modelo (textos + fotos de cada ambiente, compartidos por todas sus unidades) —
+// mismo nivel que /apartments y /payment-info: son los datos que vende la página pública.
+router.put('/categories/:typeKey', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const updated = await fb.updateCategory(req.params.typeKey, req.body || {});
+  await logAction(req, 'category.update', req.params.typeKey, { fields: Object.keys(req.body || {}) });
+  res.json(updated);
+}));
+
 // El panel usa esto para decidir qué mostrar en la navegación — la restricción REAL vive en
 // requireRole/requireSuperAdmin en cada ruta sensible, esto es solo para que la UI sepa qué
 // mostrar sin que el frontend tenga que conocer/hardcodear el correo del dueño por su cuenta.
