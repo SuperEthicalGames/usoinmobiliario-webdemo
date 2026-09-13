@@ -1612,7 +1612,13 @@ var HERO_IMG = "media/hero.jpg";
   // catálogo vía effectiveStatus). BOOKING se define más abajo en este mismo cierre, pero
   // para cuando esta función realmente se INVOQUE (async, tras una respuesta de Firebase)
   // ya existe — mismo patrón ya usado arriba con `route`, definida también más abajo.
-  window.__uso_refresh = function(){ route(); if(BOOKING.isOpen()) BOOKING.refreshOccupied(); };
+  //
+  // route(true), NUNCA route() a secas: esto se dispara por CUALQUIER escritura a unitBookings,
+  // incluyendo la que el propio modal abierto acaba de hacer (crear una reserva, elegir método
+  // de pago, reportar un pago). Sin el `true`, route() cerraba el modal a mitad de SU PROPIO
+  // flujo de éxito antes de que pudiera mostrar el paso 4 o mandar el correo de confirmación —
+  // bug real encontrado probando el flujo completo de pago de punta a punta, no algo teórico.
+  window.__uso_refresh = function(){ route(true); if(BOOKING.isOpen()) BOOKING.refreshOccupied(); };
 
   /* ---------------- Services (Fase 1 — separación lógica) ----------------
      Los Services son la única puerta de entrada que el resto del código usa para leer
@@ -4301,7 +4307,17 @@ var HERO_IMG = "media/hero.jpg";
     // lo dejaba encima de la página nueva, desconectado de lo que el usuario cree estar viendo.
     // Antes solo el link "Consultar esta reserva más tarde" llamaba BOOKING.close() a propósito;
     // cualquier otra forma de navegar lo dejaba huérfano. Bug real encontrado en auditoría.
-    if(BOOKING.isOpen()) BOOKING.close();
+    //
+    // PERO esto NO debe correr en un refresco en vivo (skipTransition=true, ver
+    // window.__uso_refresh) — bug real encontrado probando el flujo de pago de punta a punta:
+    // crear la reserva/elegir método/reportar un pago escribe en unitBookings, que dispara el
+    // listener onValue → window.__uso_refresh → route() → esto mismo, cerrando el modal a mitad
+    // de SU PROPIO flujo de éxito (nunca llegaba a mostrar el paso 4 ni a mandar el correo de
+    // confirmación, porque el `.then()` de doSubmitReservation() encuentra `state` ya en null y
+    // aborta). skipTransition ya distinguía exactamente "esto no es una navegación real del
+    // usuario" (activación de Firebase, cambio de idioma) — reusar esa misma bandera acá es
+    // consistente, no un criterio nuevo.
+    if(!skipTransition && BOOKING.isOpen()) BOOKING.close();
     if(galResizeHandler){ window.removeEventListener('resize', galResizeHandler); galResizeHandler = null; }
     var hash = location.hash || '#/';
     var hashBody = hash.replace(/^#\/?/, '');
