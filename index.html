@@ -428,10 +428,19 @@
   }
 
   /* ---------- Booking modal & flow ---------- */
-  .modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(20,20,15,0.55);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}
-  .modal-card{background:var(--paper);border-radius:22px;max-width:640px;width:100%;box-shadow:0 30px 70px -20px rgba(0,0,0,0.5);position:relative;margin:auto 0;}
-  .modal-close{position:absolute;right:16px;top:16px;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:var(--ink);z-index:2;}
-  .modal-close:hover{border-color:var(--clay);color:var(--clay);}
+  .modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(20,20,15,0.55);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;animation:modalOverlayIn .32s cubic-bezier(.22,.9,.32,1);}
+  .modal-overlay.closing{animation:modalOverlayOut .22s cubic-bezier(.4,0,1,1) forwards;}
+  .modal-card{background:var(--paper);border-radius:22px;max-width:640px;width:100%;box-shadow:0 30px 70px -20px rgba(0,0,0,0.5);position:relative;margin:auto 0;animation:modalCardIn .38s cubic-bezier(.22,.9,.32,1);}
+  .modal-overlay.closing .modal-card{animation:modalCardOut .22s cubic-bezier(.4,0,1,1) forwards;}
+  @keyframes modalOverlayIn{from{opacity:0;}to{opacity:1;}}
+  @keyframes modalOverlayOut{from{opacity:1;}to{opacity:0;}}
+  @keyframes modalCardIn{from{opacity:0;transform:translateY(28px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}
+  @keyframes modalCardOut{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(16px) scale(.97);}}
+  @media (prefers-reduced-motion: reduce){
+    .modal-overlay, .modal-card, .modal-overlay.closing, .modal-overlay.closing .modal-card{animation:none;}
+  }
+  .modal-close{position:absolute;right:16px;top:16px;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:var(--ink);z-index:2;transition:transform .32s cubic-bezier(.34,1.56,.64,1), border-color .2s ease, color .2s ease;}
+  .modal-close:hover{border-color:var(--clay);color:var(--clay);transform:rotate(90deg) scale(1.08);}
   .modal-body{padding:32px 30px 30px;}
   @media (max-width:640px){ .modal-body{padding:26px 20px 22px;} .modal-overlay{padding:0;} .modal-card{border-radius:0;min-height:100vh;} }
 
@@ -445,23 +454,27 @@
   .bk-head h3{font-size:22px;}
   .bk-head p{font-size:13.5px;opacity:0.7;margin-top:6px;}
 
-  .cal-card{border:1px solid var(--line);border-radius:16px;padding:18px 18px 16px;background:var(--card);}
+  .cal-card{border:1px solid var(--line);border-radius:16px;padding:18px 18px 16px;background:var(--card);transition:box-shadow .3s ease;}
   .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
   .cal-nav b{font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;text-transform:capitalize;}
-  .cal-nav button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:15px;}
+  .cal-nav button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:15px;transition:transform .28s cubic-bezier(.34,1.56,.64,1), border-color .2s ease, color .2s ease;}
   .cal-nav button:disabled{opacity:0.3;cursor:not-allowed;}
-  .cal-nav button:not(:disabled):hover{border-color:var(--clay);color:var(--clay);}
+  .cal-nav button:not(:disabled):hover{border-color:var(--clay);color:var(--clay);transform:scale(1.14);}
+  .cal-nav button:not(:disabled):active{transform:scale(0.94);}
   .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px;}
   .cal-weekdays span{text-align:center;font-size:10.5px;font-weight:700;text-transform:uppercase;opacity:0.5;padding:4px 0;}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
-  .cal-day{aspect-ratio:1;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;}
+  .cal-day{aspect-ratio:1;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;transition:background .2s ease, color .2s ease, transform .18s cubic-bezier(.34,1.56,.64,1);}
   .cal-day:disabled{opacity:0.25;cursor:not-allowed;}
   .cal-day.empty{visibility:hidden;cursor:default;}
-  .cal-day:not(:disabled):not(.empty):hover{background:var(--paper-2);}
+  .cal-day:not(:disabled):not(.empty):hover{background:var(--paper-2);transform:scale(1.1);}
+  .cal-day:not(:disabled):not(.empty):active{transform:scale(0.94);}
   .cal-day.in-range{background:var(--sand);border-radius:0;}
-  .cal-day.range-start{background:var(--forest);color:#f5f0e6;border-radius:8px 0 0 8px;}
-  .cal-day.range-end{background:var(--forest);color:#f5f0e6;border-radius:0 8px 8px 0;}
+  .cal-day.range-start{background:var(--forest);color:#f5f0e6;border-radius:8px 0 0 8px;animation:calDayPop .32s cubic-bezier(.34,1.56,.64,1);}
+  .cal-day.range-end{background:var(--forest);color:#f5f0e6;border-radius:0 8px 8px 0;animation:calDayPop .32s cubic-bezier(.34,1.56,.64,1);}
   .cal-day.range-start.range-end{border-radius:8px;}
+  @keyframes calDayPop{from{transform:scale(.7);}to{transform:scale(1);}}
+  @media (prefers-reduced-motion: reduce){ .cal-day.range-start, .cal-day.range-end{animation:none;} }
   :root:not([data-theme="light"]) .cal-day.range-start, :root:not([data-theme="light"]) .cal-day.range-end{color:#12140f;}
   :root[data-theme="light"] .cal-day.range-start, :root[data-theme="light"] .cal-day.range-end{color:#f5f0e6;}
   .cal-day.occupied::after{content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;}
@@ -2984,12 +2997,25 @@ var HERO_IMG = "media/hero.jpg";
     }
 
     function close(){
-      var root = document.getElementById('modalRoot');
-      if(root) root.innerHTML = '';
-      document.body.style.overflow = '';
+      var overlay = document.getElementById('bkOverlay');
       document.removeEventListener('keydown', escHandler);
       if(state && state.countdownInterval) clearInterval(state.countdownInterval);
       state = null;
+      function finish(){
+        var root = document.getElementById('modalRoot');
+        if(root) root.innerHTML = '';
+        document.body.style.overflow = '';
+      }
+      // Mismo criterio que route(): sin animación de salida el modal simplemente
+      // desaparecía de golpe, en contraste con la entrada (ya animada arriba). Con
+      // REDUCED_MOTION la clase 'closing' no tiene ninguna @keyframes asociada (ver CSS), así
+      // que el setTimeout solo retrasaría el cierre sin motivo — se evita del todo.
+      if(overlay && !REDUCED_MOTION){
+        overlay.classList.add('closing');
+        setTimeout(finish, 220);
+      } else {
+        finish();
+      }
     }
 
     function isOpen(){ return !!state; }
