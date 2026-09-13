@@ -412,6 +412,14 @@ const adminLimiter = rateLimit({
 app.options('/admin/api/*', allowAdminOrigin);
 app.use('/admin/api', allowAdminOrigin, adminLimiter, requireAdminAuth, attachRole, adminRoutes);
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+// Sin CORS, un `fetch()` desde el navegador del sitio público a esta ruta se bloquea en
+// silencio (bug real encontrado en vivo: window.__uso_assertConnected empezó a usar esto para
+// confirmar que el backend responde antes de dejar reservar — sin este header, CADA reserva
+// real habría fallado con "no pudimos confirmar la conexión", nunca solo un caso raro). No hay
+// nada sensible en la respuesta — un origen abierto es correcto para un healthcheck público.
+app.get('/health', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json({ ok: true });
+});
 
 module.exports = app;
