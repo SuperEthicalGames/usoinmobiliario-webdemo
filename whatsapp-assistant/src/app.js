@@ -85,7 +85,12 @@ function allowAdminOrigin(req, res, next) {
   const origin = req.headers.origin;
   res.setHeader('Access-Control-Allow-Origin', LOCALHOST_ORIGIN.test(origin || '') ? origin : config.adminOrigin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  // PUT hace falta para /apartments/:typeKey/:num, /payment-info y /users/:uid/role — sin
+  // él en esta lista, el preflight del navegador pasa (OPTIONS responde 204) pero el PUT real
+  // queda bloqueado del lado del navegador con un fetch failure genérico, indistinguible de un
+  // problema de red real (bug real encontrado en producción: editar/crear un apartamento
+  // fallaba con "No se pudo conectar con el servidor").
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
