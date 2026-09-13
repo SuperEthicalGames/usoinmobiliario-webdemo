@@ -198,6 +198,22 @@ app.post('/email/payment-reported', allowSiteOrigin, async (req, res) => {
   }
 });
 
+// "Información de visita" (sección 37 del pedido) — el único correo transaccional que nunca se
+// construyó hasta ahora: agendar una cita no mandaba ningún correo. Mismo patrón exacto que
+// reservation-confirmation, solo que valida type==='cita' en vez de 'reserva'.
+app.options('/email/visit-confirmation', allowSiteOrigin);
+app.post('/email/visit-confirmation', allowSiteOrigin, async (req, res) => {
+  try {
+    const { code, email, lang } = req.body || {};
+    const result = await emailService.sendVisitConfirmation({ code, email, lang });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = EMAIL_ERROR_STATUS[err.code] || 500;
+    if (status === 500) console.error('[app] Error enviando correo de confirmación de cita:', err);
+    res.status(status).json({ error: err.code || 'unknown-error' });
+  }
+});
+
 // Reservas/citas/pagos del sitio público — antes escritas directo a Firebase desde el
 // navegador (Rules como única barrera); ahora el backend es dueño de la escritura para TODOS
 // los canales, no solo WhatsApp/chat (ver plan de migración de reservas). reservationBuilder

@@ -233,6 +233,14 @@ async function createVisit(args = {}) {
   try {
     const { rec, isGeneral } = await reservationBuilder.buildVisitRecord(args);
     const created = isGeneral ? await fb.createGeneralVisit(rec) : await fb.createSpecificVisit(rec);
+
+    // Fire-and-forget, mismo criterio que createReservationHold: el bot no tiene un cliente JS
+    // propio que haga una segunda llamada aparte (a diferencia del sitio público), así que acá
+    // sí es este backend quien manda el correo.
+    emailService.sendVisitConfirmation({ code: created.code, email: created.email }).catch((err) => {
+      console.error(`[businessTools] No se pudo enviar el correo de confirmación de cita ${created.code}:`, err.code || err.message);
+    });
+
     return { ok: true, code: created.code };
   } catch (err) {
     if (err.message === 'invalid-visit-fields') {

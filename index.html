@@ -921,9 +921,8 @@
     bkPhonePh:{es:"Ej. 313 649 6615",en:"e.g. 313 649 6615"},
     bkPhoneCountry:{es:"Indicativo del país",en:"Country code"},
     bkEmail:{es:"Correo electrónico",en:"Email"},
-    bkEmailOptional:{es:"Correo (opcional)",en:"Email (optional)"},
     bkEmailPh:{es:"tucorreo@ejemplo.com",en:"you@example.com"},
-    bkEmailHelp:{es:"Te enviaremos aquí los datos y el código de tu reserva.",en:"We'll send your reservation details and code here."},
+    bkEmailHelp:{es:"Te enviaremos aquí la confirmación y el código.",en:"We'll send your confirmation and code here."},
     bkNotes:{es:"Notas adicionales (opcional)",en:"Additional notes (optional)"},
     bkNotesPh:{es:"Hora de llegada, preguntas, etc.",en:"Arrival time, questions, etc."},
     bkNameErr:{es:"Ingresa tu nombre completo",en:"Enter your full name"},
@@ -963,14 +962,14 @@
     bkCloseDone:{es:"Volver al catálogo",en:"Back to catalog"},
 
     emailSendingMsg:{es:"Enviando la confirmación a tu correo…",en:"Sending your confirmation email…"},
-    emailSentMsg:{es:"Te enviamos los detalles de tu reserva a {email}.",en:"We've sent your reservation details to {email}."},
-    emailFailedMsg1:{es:"Tu reserva fue creada correctamente, pero no pudimos enviar el correo de confirmación.",en:"Your reservation was created successfully, but we couldn't send the confirmation email."},
-    emailFailedMsg2:{es:"Tu código de reserva es {code}. Guárdalo y puedes continuar desde esta página.",en:"Your reservation code is {code}. Save it — you can continue from this page."},
+    emailSentMsg:{es:"Te enviamos los detalles a {email}.",en:"We've sent the details to {email}."},
+    emailFailedMsg1:{es:"Tu solicitud fue creada correctamente, pero no pudimos enviar el correo de confirmación.",en:"Your request was created successfully, but we couldn't send the confirmation email."},
+    emailFailedMsg2:{es:"Tu código es {code}. Guárdalo y puedes continuar desde esta página.",en:"Your code is {code}. Save it — you can continue from this page."},
     resendEmailBtn:{es:"Reenviar información por correo",en:"Resend details by email"},
-    resendEmailPrompt:{es:"Confirma el correo de esta reserva para reenviar la información.",en:"Confirm this booking's email to resend the details."},
+    resendEmailPrompt:{es:"Confirma el correo de este registro para reenviar la información.",en:"Confirm this record's email to resend the details."},
     resendEmailSubmitBtn:{es:"Enviar",en:"Send"},
     resendEmailCancelBtn:{es:"Cancelar",en:"Cancel"},
-    resendEmailMismatchErr:{es:"Ese correo no coincide con esta reserva.",en:"That email doesn't match this booking."},
+    resendEmailMismatchErr:{es:"Ese correo no coincide con este registro.",en:"That email doesn't match this record."},
     resendEmailSending:{es:"Reenviando…",en:"Resending…"},
     resendEmailSentMsg:{es:"Listo, reenviamos la información a tu correo.",en:"Done — we resent the details to your email."},
     resendEmailFailedMsg:{es:"No pudimos reenviar el correo. Intenta de nuevo más tarde.",en:"We couldn't resend the email. Please try again later."},
@@ -1935,6 +1934,18 @@ var HERO_IMG = "media/hero.jpg";
       if(!res || res.type !== 'reserva' || !res.email) return Promise.resolve({skipped:true});
       return EmailProvider.send({ to_email: res.email, reservation_code: res.code });
     }
+    // "Información de visita" (sección 37 del pedido) — hasta ahora el único correo
+    // transaccional que nunca se construyó: agendar una cita no mandaba nada. Mismo criterio
+    // exacto que sendReservationCreated, solo que pega a /email/visit-confirmation.
+    function sendVisitCreated(res){
+      if(!res || res.type !== 'cita' || !res.email) return Promise.resolve({skipped:true});
+      return EmailProvider.send({ to_email: res.email, reservation_code: res.code }, '/email/visit-confirmation');
+    }
+    // Un solo punto de despacho para "recién creado" (reserva o cita) — evita que cada call
+    // site tenga que acordarse de la rama correcta por su cuenta.
+    function sendCreationEmail(res){
+      return (res && res.type === 'cita') ? sendVisitCreated(res) : sendReservationCreated(res);
+    }
     // Mismo criterio: el pago ya quedó guardado en Firebase antes de llamar esto (ver
     // mountPaymentSection) — este correo es solo un aviso de "lo recibimos", nunca la fuente
     // de verdad de que el reporte existe.
@@ -1942,7 +1953,10 @@ var HERO_IMG = "media/hero.jpg";
       if(!res || res.type !== 'reserva' || !res.email) return Promise.resolve({skipped:true});
       return EmailProvider.send({ to_email: res.email, reservation_code: res.code }, '/email/payment-reported');
     }
-    return { sendReservationCreated: sendReservationCreated, sendPaymentReported: sendPaymentReported };
+    return {
+      sendReservationCreated: sendReservationCreated, sendVisitCreated: sendVisitCreated,
+      sendCreationEmail: sendCreationEmail, sendPaymentReported: sendPaymentReported
+    };
   })();
 
   /* ---------------- Tarjeta de reserva (imagen descargable) ----------------
@@ -2593,7 +2607,11 @@ var HERO_IMG = "media/hero.jpg";
     // El correo es obligatorio solo para reservas (necesitamos poder enviarle el código y
     // los detalles) — las citas conservan el campo opcional tal como ya funcionaba, sin
     // tocar ese flujo (sección 38 del pedido: no cambiar innecesariamente lo de visitas).
-    function emailRequiredForMode(){ return state.mode !== 'cita'; }
+    // Antes las citas no exigían correo (así lo permitían las Rules de Firebase para ese
+    // camino) — pero el bot SÍ lo exigía desde siempre (validators.missingVisitFields), y desde
+    // que existe un correo real de "cita agendada" (sección 37), sin correo el cliente no
+    // podría recibirlo. Ahora es requerido para los dos modos, cerrando esa inconsistencia.
+    function emailRequiredForMode(){ return true; }
     function emailFieldOk(email){ return emailRequiredForMode() ? EMAIL_RE.test(email) : (email === '' || EMAIL_RE.test(email)); }
 
     function step2FieldsValid(){
@@ -2637,9 +2655,7 @@ var HERO_IMG = "media/hero.jpg";
     }
 
     function renderStep2(){
-      var isVisitMode = state.mode === 'cita';
       var initialValid = state.name.trim().length>=3 && state.phoneLocal.replace(/[^0-9]/g,'').length>=7 && state.consent && emailFieldOk(state.email);
-      var emailLabelKey = isVisitMode ? 'bkEmailOptional' : 'bkEmail';
       var html = stepDotsHtml()
         + '<div class="bk-head"><p class="eyebrow">'+t('bkStepInfo')+'</p><h3>'+t('bkInfoTitle')+'</h3><p>'+(state.mode==='cita'?t('bkInfoSubVisit'):t('bkInfoSub'))+'</p></div>'
         + '<div class="bk-field"><label>'+t('bkName')+' <span class="req">*</span></label>'
@@ -2654,9 +2670,9 @@ var HERO_IMG = "media/hero.jpg";
         +     '<input type="tel" id="fPhone" placeholder="'+t('bkPhonePh')+'" value="'+escHtml(state.phoneLocal)+'">'
         +   '</div>'
         +   '<div class="bk-error-msg" id="errPhone">'+t('bkPhoneErr')+'</div></div>'
-        + '<div class="bk-field"><label>'+t(emailLabelKey)+(isVisitMode?'':' <span class="req">*</span>')+'</label>'
+        + '<div class="bk-field"><label>'+t('bkEmail')+' <span class="req">*</span></label>'
         +   '<input type="email" id="fEmail" placeholder="'+t('bkEmailPh')+'" value="'+escHtml(state.email)+'">'
-        +   (isVisitMode ? '' : '<div class="bk-field-hint">'+t('bkEmailHelp')+'</div>')
+        +   '<div class="bk-field-hint">'+t('bkEmailHelp')+'</div>'
         +   '<div class="bk-error-msg" id="errEmail">'+t('bkEmailInvalidErr')+'</div></div>'
         + '<div class="bk-field"><label>'+t('bkNotes')+'</label>'
         +   '<textarea id="fNotes" placeholder="'+t('bkNotesPh')+'">'+escHtml(state.notes)+'</textarea></div>'
@@ -2817,13 +2833,14 @@ var HERO_IMG = "media/hero.jpg";
         if(!state || state.step !== 3) return;
         state.reservation = res;
         state.step = 4;
-        // El correo se dispara DESPUÉS de que Firebase ya guardó la reserva (nunca antes) y
-        // nunca bloquea ni revierte nada si falla (sección 12/13/34 del pedido) — es un canal
-        // de comunicación, no la fuente de verdad. Las citas no llevan email obligatorio ni
-        // este correo (sección 30/38: alcance limitado a reservas).
-        state.emailStatus = isVisit ? null : 'sending';
+        // El correo se dispara DESPUÉS de que Firebase ya guardó la reserva/cita (nunca antes)
+        // y nunca bloquea ni revierte nada si falla (sección 12/13/34 del pedido) — es un canal
+        // de comunicación, no la fuente de verdad. Desde la sección 37 ("información de
+        // visita") esto ya no está limitado a reservas — EmailService.sendCreationEmail
+        // despacha a la plantilla correcta según res.type.
+        state.emailStatus = 'sending';
         render();
-        if(!isVisit) sendReservationEmail(res);
+        sendCreationEmail(res);
       }).catch(function(err){
         console.error('No se pudo guardar la reserva/cita:', err);
         if(!state || state.step !== 3) return;
@@ -2837,12 +2854,12 @@ var HERO_IMG = "media/hero.jpg";
       });
     }
 
-    // Se llama una sola vez, justo después de que Firebase confirmó la reserva (nunca antes,
-    // nunca para reintentar sola por un refresh/vuelta atrás — ver el guard de state.step/
-    // reservation.code en cada callback). Si falla, solo actualiza el aviso visual: la
-    // reserva ya existe y el código ya es visible desde antes de esto (sección 13/34).
-    function sendReservationEmail(res){
-      EmailService.sendReservationCreated(res).then(function(){
+    // Se llama una sola vez, justo después de que Firebase confirmó la reserva/cita (nunca
+    // antes, nunca para reintentar sola por un refresh/vuelta atrás — ver el guard de
+    // state.step/reservation.code en cada callback). Si falla, solo actualiza el aviso visual:
+    // el registro ya existe y el código ya es visible desde antes de esto (sección 13/34).
+    function sendCreationEmail(res){
+      EmailService.sendCreationEmail(res).then(function(){
         if(!state || state.step !== 4 || !state.reservation || state.reservation.code !== res.code) return;
         state.emailStatus = 'sent';
         renderStep4();
@@ -2887,7 +2904,7 @@ var HERO_IMG = "media/hero.jpg";
           + '<p class="hc-note">'+t('holdNote')+'</p></div>'
         ) : '';
       var emailStatusHtml = '';
-      if(!isVisit && state.emailStatus){
+      if(state.emailStatus){
         if(state.emailStatus === 'sending'){
           emailStatusHtml = '<div class="email-status-note sending">'+t('emailSendingMsg')+'</div>';
         } else if(state.emailStatus === 'sent'){
@@ -3679,7 +3696,7 @@ var HERO_IMG = "media/hero.jpg";
           ReservationService.reportPayment(res.code, report).then(function(){
             res.paymentStatus = 'submitted';
             res.paymentReport = report;
-            // Fire-and-forget, igual que sendReservationEmail() tras crear la reserva — el
+            // Fire-and-forget, igual que sendCreationEmail() tras crear la reserva/cita — el
             // pago ya quedó guardado en Firebase arriba; este correo es solo un aviso y nunca
             // debe demorar ni condicionar lo que el cliente ve a continuación.
             EmailService.sendPaymentReported(res).catch(function(err){
@@ -3779,7 +3796,7 @@ var HERO_IMG = "media/hero.jpg";
   // proporcional al riesgo de esta acción puntual, sin reestructurar el modelo de datos ni
   // las rules (decisión explícita del usuario, ver conversación).
   function resendEmailSectionHtml(res){
-    if(res.type !== 'reserva' || !res.email) return '';
+    if(!res.email) return '';
     return '<div id="resendEmailWrap" style="margin-top:10px;">'
       + '<button type="button" class="btn btn-ghost" id="resendEmailToggleBtn" style="width:100%;justify-content:center;">'+t('resendEmailBtn')+'</button>'
       + '<div id="resendEmailBox" style="display:none;"></div>'
@@ -3812,7 +3829,7 @@ var HERO_IMG = "media/hero.jpg";
         errEl.classList.remove('show');
         var btn = document.getElementById('resendEmailSubmitBtn');
         btn.disabled = true; btn.textContent = t('resendEmailSending');
-        EmailService.sendReservationCreated(res).then(function(){
+        EmailService.sendCreationEmail(res).then(function(){
           box.innerHTML = '<div class="email-status-note sent">'+t('resendEmailSentMsg')+'</div>';
         }).catch(function(err){
           console.warn('[Email] Reenvío falló ('+res.code+'):', err && err.code || err);

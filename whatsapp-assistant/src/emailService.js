@@ -182,6 +182,82 @@ function reservationCreatedHtml(rec, categoryLabel, lang) {
     + `</div>`;
 }
 
+// Puerto simplificado de reservationDisplayStatus para citas — sin HOLD/pago (una cita no tiene
+// ninguno de los dos), solo el ciclo de vida propio de reservationsManager/visits.status.
+const VISIT_STATUS_LABELS = {
+  es: {
+    pendiente: 'Cita pendiente de confirmación', confirmada: 'Cita confirmada',
+    rechazada: 'Cita rechazada', cancelada: 'Cita cancelada', completada: 'Cita completada',
+  },
+  en: {
+    pendiente: 'Appointment pending confirmation', confirmada: 'Appointment confirmed',
+    rechazada: 'Appointment rejected', cancelada: 'Appointment cancelled', completada: 'Appointment completed',
+  },
+};
+function visitDisplayStatus(rec, lang) {
+  return (VISIT_STATUS_LABELS[lang] && VISIT_STATUS_LABELS[lang][rec.status]) || rec.status;
+}
+
+// "Información de visita" (sección 37 del pedido) — el único correo transaccional que nunca se
+// construyó: una cita creada (específica o general) no mandaba NINGÚN correo hasta ahora. Mismo
+// look que reservationCreatedHtml pero sin tabla de precio/HOLD/pago (una cita no tiene ninguno
+// de los dos) — solo fecha, hora, unidad (si aplica) y estado.
+function visitCreatedHtml(rec, categoryLabel, lang) {
+  const isEs = lang === 'es';
+  const isGeneral = rec.appointmentType === 'general_visit';
+  const statusLine = visitDisplayStatus(rec, lang);
+  const nextStepHtml = isGeneral
+    ? (isEs ? 'Nuestro equipo se pondrá en contacto contigo para coordinar qué apartamentos visitar.' : 'Our team will reach out to coordinate which apartments to visit.')
+    : (isEs ? 'Te esperamos en la fecha y hora indicadas — si necesitas cambiarla, escríbenos por WhatsApp.' : "We'll see you at the date and time above — message us on WhatsApp if you need to reschedule.");
+
+  const manageUrl = `${config.siteBaseUrl}/#/mi-reserva?code=${encodeURIComponent(rec.code)}`;
+  const waUrl = 'https://wa.me/573136496615?text=' + encodeURIComponent(isEs
+    ? `Hola, tengo una pregunta sobre mi cita ${rec.code}.`
+    : `Hi, I have a question about my visit ${rec.code}.`);
+
+  return ''
+    + `<div style="background:#efe7d8;padding:24px 12px;font-family:Georgia,'Times New Roman',serif;color:#20241f;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#f5f0e6;border-radius:14px;overflow:hidden;">`
+    + `<tr><td style="background:#33513f;padding:20px 28px;">`
+    + `<div style="color:#f5f0e6;font-size:13px;letter-spacing:2px;text-transform:uppercase;">USO INMOBILIARIO</div>`
+    + `<div style="color:#f5f0e6;font-size:20px;font-weight:700;margin-top:4px;">${isEs ? 'Cita agendada' : 'Visit scheduled'}</div>`
+    + `</td></tr>`
+    + `<tr><td style="padding:24px 28px 8px;">`
+    + `<p style="margin:0 0 14px;font-size:15px;">${isEs ? 'Hola, ' : 'Hi '}${esc(rec.name)}${isEs ? '. Hemos registrado tu cita.' : ". We've registered your visit."}</p>`
+    + `</td></tr>`
+    + `<tr><td style="padding:0 28px;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e4d8c3;border-radius:12px;">`
+    + `<tr><td style="padding:16px 20px;text-align:center;">`
+    + `<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#9c7b3f;">${isEs ? 'Código de cita' : 'Visit code'}</div>`
+    + `<div style="font-size:34px;font-weight:700;letter-spacing:4px;color:#33513f;margin-top:4px;">${esc(rec.code)}</div>`
+    + `</td></tr>`
+    + `</table>`
+    + `</td></tr>`
+    + `<tr><td style="padding:20px 28px 4px;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">`
+    + (isGeneral ? '' : ''
+      + `<tr><td style="padding:6px 0;color:#6b6b60;">${isEs ? 'Apartamento' : 'Apartment'}</td><td style="padding:6px 0;text-align:right;font-weight:700;">${esc(rec.unitLabel)}</td></tr>`
+      + `<tr><td style="padding:6px 0;color:#6b6b60;">${isEs ? 'Tipo' : 'Type'}</td><td style="padding:6px 0;text-align:right;">${esc(categoryLabel || '—')}</td></tr>`)
+    + `<tr><td style="padding:6px 0;color:#6b6b60;">${isEs ? 'Fecha' : 'Date'}</td><td style="padding:6px 0;text-align:right;">${esc(fmtLongDate(rec.visitDate, lang))}</td></tr>`
+    + `<tr><td style="padding:6px 0;color:#6b6b60;">${isEs ? 'Hora' : 'Time'}</td><td style="padding:6px 0;text-align:right;">${esc(rec.visitTime)}</td></tr>`
+    + `<tr><td style="padding:6px 0;color:#6b6b60;">${isEs ? 'Estado' : 'Status'}</td><td style="padding:6px 0;text-align:right;font-weight:700;">${esc(statusLine)}</td></tr>`
+    + `</table>`
+    + `</td></tr>`
+    + `<tr><td style="padding:16px 28px;">`
+    + `<div style="border-top:1px solid #b6603c33;padding-top:14px;font-size:13.5px;color:#6b6b60;text-transform:uppercase;letter-spacing:1px;">${isEs ? 'Siguiente paso' : 'Next step'}</div>`
+    + `<p style="margin:8px 0 0;font-size:14.5px;">${esc(nextStepHtml)}</p>`
+    + `</td></tr>`
+    + `<tr><td style="padding:8px 28px 24px;">`
+    + `<a href="${esc(manageUrl)}" style="display:inline-block;background:#33513f;color:#f5f0e6;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;margin-right:8px;">${isEs ? 'Ver mi cita' : 'View my visit'}</a>`
+    + `<a href="${esc(waUrl)}" style="display:inline-block;background:#e4d8c3;color:#20241f;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">WhatsApp</a>`
+    + `</td></tr>`
+    + `<tr><td style="padding:16px 28px;background:#e4d8c3;text-align:center;font-size:12px;color:#6b6b60;">`
+    + `Uso Inmobiliario · Laureles, Medellín`
+    + `</td></tr>`
+    + `</table>`
+    + `</div>`;
+}
+
 // Plantilla compartida para los correos de ACTUALIZACIÓN de estado (pago verificado/rechazado,
 // reserva cancelada) — mismo look & feel que reservationCreatedHtml (sección 37 del pedido:
 // "subject consistente", "templates"), pero sin repetir toda la tabla de detalles de la
@@ -293,7 +369,10 @@ function rateLimited(code) {
 // una ocurrencia tardía). Un solo lugar — antes esto vivía solo dentro de
 // sendReservationConfirmation, duplicarlo para el nuevo correo de "pago reportado" habría sido
 // repetir la misma lógica de seguridad dos veces.
-async function resolveVerifiedReservationEmail(code, email, lang) {
+// expectedType generalizado (antes fijo a 'reserva') para poder reusar la MISMA verificación
+// código+correo en sendVisitConfirmation — el motivo de seguridad es idéntico para ambos tipos
+// (ver el comentario original arriba de este archivo), no hacía falta una segunda función.
+async function resolveVerifiedReservationEmail(code, email, lang, expectedType) {
   const language = lang === 'en' ? 'en' : 'es';
   const upperCode = String(code || '').trim().toUpperCase();
   const trimmedEmail = String(email || '').trim();
@@ -309,7 +388,7 @@ async function resolveVerifiedReservationEmail(code, email, lang) {
 
   const rec = await fb.getReservationByCode(upperCode);
   if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
-  if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'invalid'; throw e; }
+  if (rec.type !== (expectedType || 'reserva')) { const e = new Error('wrong-record-type'); e.code = 'invalid'; throw e; }
   if (!rec.email || String(rec.email).trim().toLowerCase() !== trimmedEmail.toLowerCase()) {
     const e = new Error('email-mismatch'); e.code = 'forbidden'; throw e;
   }
@@ -325,6 +404,33 @@ async function sendReservationConfirmation({ code, email, lang }) {
 
   const html = reservationCreatedHtml(rec, categoryLabel, language);
   const subject = (language === 'es' ? 'Tu reserva ' : 'Your booking ') + rec.code + (language === 'es' ? ' fue creada' : ' was created');
+
+  const info = await getTransporter().sendMail({
+    from: `"Uso Inmobiliario" <${config.email.gmailUser}>`,
+    to: rec.email,
+    subject,
+    html,
+  });
+  return { sent: true, messageId: info.messageId };
+}
+
+// "Información de visita" — el mismo motivo de verificación código+correo que
+// sendReservationConfirmation (ver resolveVerifiedReservationEmail), solo que exige type==='cita'
+// en vez de 'reserva'. Disparado por el propio cliente justo después de agendar una cita
+// (index.html) o, en el bot, fire-and-forget justo después de businessTools.createVisit — mismo
+// criterio que sendReservationConfirmation para el bot.
+async function sendVisitConfirmation({ code, email, lang }) {
+  const { rec, language } = await resolveVerifiedReservationEmail(code, email, lang, 'cita');
+
+  let categoryLabel = '';
+  if (rec.unitType) {
+    const categories = await fb.getCategories();
+    const category = categories[rec.unitType];
+    categoryLabel = category && category.catLabel ? category.catLabel[language] : '';
+  }
+
+  const html = visitCreatedHtml(rec, categoryLabel, language);
+  const subject = (language === 'es' ? 'Tu cita ' : 'Your visit ') + rec.code + (language === 'es' ? ' fue agendada' : ' was scheduled');
 
   const info = await getTransporter().sendMail({
     from: `"Uso Inmobiliario" <${config.email.gmailUser}>`,
@@ -354,4 +460,5 @@ async function sendPaymentReported({ code, email, lang }) {
 module.exports = {
   sendReservationConfirmation, reservationCreatedHtml, reservationDisplayStatus, isConfigured,
   sendPaymentVerified, sendPaymentRejected, sendReservationCancelled, sendPaymentReported,
+  sendVisitConfirmation, visitCreatedHtml, visitDisplayStatus,
 };
