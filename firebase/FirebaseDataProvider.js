@@ -151,27 +151,17 @@ function rememberMyCode(code, type){
   }catch(e){}
 }
 
-// Libera de forma oportunista (mejor esfuerzo) las noches de un HOLD vencido sin pago — antes
-// esto solo pasaba "de rebote" cuando alguien más intentaba tomar exactamente esas mismas
-// noches (la regla de bookedNights ya lo permitía, ver database.rules.json: su condición de
-// reclamo no distingue entre sobreescribir con un código nuevo o borrar/poner null). Ahora se
-// dispara en cuanto CUALQUIER visitante consulta disponibilidad y lo detecta (checkNightFree /
-// getOccupiedDates), para que la fecha no quede como un "candado fantasma" hasta que alguien
-// más la reclame. Si falla (alguien ya la reclamó, o se reportó el pago justo antes), no
-// importa — es solo limpieza, la lectura ya filtraba el HOLD vencido de todas formas.
-function reclaimExpiredHold(unitKey, booking){
-  if(!booking || !booking.checkin || !booking.checkout) return;
-  var updates = {};
-  nightsBetween(booking.checkin, booking.checkout).forEach(function(n){
-    updates['bookedNights/' + unitKey + '/' + n] = null;
-  });
-  update(ref(db), updates).catch(function(){ /* mejor esfuerzo, ignorar */ });
-}
+// El reclamo oportunista de un HOLD vencido (poner bookedNights=null) YA NO vive acá — era la
+// única escritura anónima que le quedaba a este archivo, y ahora un barrido periódico en el
+// backend (firebase.js: sweepExpiredHolds/startHoldSweepLoop) hace ese trabajo de forma
+// confiable para TODA la base, no solo para la unidad que alguien esté mirando en este momento
+// (ver plan de migración de reservas). Estas dos lecturas siguen filtrando un HOLD vencido para
+// no bloquear al usuario que consulta — simplemente ya no intentan "limpiarlo" ellas mismas.
+//
 // Una noche con un nodo en bookedNights parece ocupada, pero si el HOLD dueño ya venció sin
-// pago reportado ya no cuenta como bloqueo real (mismo criterio que la regla de reclamo en
-// database.rules.json) — se confirma leyendo unitBookings/{unitKey}/{code} (público, sin
-// datos de contacto) por el código que aparece en bookedNights. Devuelve {free} o
-// {free:false, reason} — reason distingue una reserva ya CONFIRMADA de un HOLD todavía
+// pago reportado ya no cuenta como bloqueo real — se confirma leyendo unitBookings/{unitKey}/
+// {code} (público, sin datos de contacto) por el código que aparece en bookedNights. Devuelve
+// {free} o {free:false, reason} — reason distingue una reserva ya CONFIRMADA de un HOLD todavía
 // pendiente (sección 22 del pedido: la disponibilidad debe poder explicar por qué no).
 function checkNightFree(unitKey, night){
   return get(ref(db, 'bookedNights/' + unitKey + '/' + night)).then(function(snap){
@@ -179,10 +169,7 @@ function checkNightFree(unitKey, night){
     var code = snap.val();
     return get(ref(db, 'unitBookings/' + unitKey + '/' + code)).then(function(ubSnap){
       var ub = ubSnap.exists() ? ubSnap.val() : null;
-      if(isHoldExpiredRecord(ub)){
-        reclaimExpiredHold(unitKey, ub);
-        return { free: true };
-      }
+      if(isHoldExpiredRecord(ub)) return { free: true };
       var reason = (ub && ub.status === 'confirmada') ? 'confirmed_reservation' : 'temporary_hold';
       return { free: false, reason: reason };
     });
@@ -223,7 +210,7 @@ function getOccupiedDates(typeKey, num){
   Object.keys(bookings).forEach(function(code){
     var b = bookings[code];
     if(!b || b.type !== 'reserva' || b.status === 'rechazada' || b.status === 'cancelada') return;
-    if(isHoldExpiredRecord(b)){ reclaimExpiredHold(unitKey, b); return; }
+    if(isHoldExpiredRecord(b)) return;
     var reason = b.status === 'confirmada' ? 'confirmed_reservation' : 'temporary_hold';
     nightsBetween(b.checkin, b.checkout).forEach(function(n){
       if(out[n] !== 'confirmed_reservation') out[n] = reason;
@@ -232,77 +219,41 @@ function getOccupiedDates(typeKey, num){
   return Promise.resolve(out);
 }
 
-function createReservation(rec){
-  // Una visita general ("quiero conocer las opciones disponibles") no está atada a una
-  // unidad — no hay bookedVisitSlots/unitBookings que escribir ni turno que chequear, se
-  // guarda directo. El admin decide después qué apartamentos mostrar (no se inventa un
-  // "matching" automático que no pidieron).
-  if(rec.appointmentType === 'general_visit'){
-    var updates0 = {};
-    updates0[pathFor(rec.type) + '/' + rec.code] = rec;
-    return update(ref(db), updates0).then(function(){
-      rememberMyCode(rec.code, rec.type);
-      return rec;
-    }).catch(function(err){
-      if(isPermissionDenied(err)){ var conflict = new Error('conflict'); conflict.code = 'conflict'; throw conflict; }
-      throw err;
-    });
-  }
-
-  var unitKey = unitKeyOf(rec.unitType, rec.unitNum);
-  var nights = rec.type === 'reserva' ? nightsBetween(rec.checkin, rec.checkout) : null;
-  var slotKey = rec.type === 'cita' ? (rec.visitDate + '_' + rec.visitTime) : null;
-
-  // Chequeo previo (no atómico, pero rápido) — le da al usuario un mensaje preciso ("esas
-  // fechas ya no están disponibles") en el caso normal. El update() multi-ruta de abajo es
-  // la garantía real contra la carrera de dos escrituras casi simultáneas.
-  var preCheck = rec.type === 'reserva'
-    ? checkNightsFree(unitKey, nights).then(function(result){
-        if(!result.available){ var e = new Error('dates-taken'); e.code = 'dates-taken'; throw e; }
-      })
-    : checkSlotFree(unitKey, slotKey).then(function(free){
-        if(!free){ var e = new Error('slot-taken'); e.code = 'slot-taken'; throw e; }
+// El backend (whatsapp-assistant) es ahora el único que escribe reservas/citas/pagos — para
+// TODOS los canales, no solo WhatsApp/chat (ver plan de migración de reservas). Esta función ya
+// no toca Firebase directo: solo arma el POST y traduce la respuesta, exactamente la misma
+// forma/errores que antes para que ReservationService/VisitService/BOOKING en index.html no
+// necesiten ningún cambio. El backend recalcula code/status/expiresAt/paymentStatus/estTotal/
+// priceSnapshot server-side (nunca confía en lo que mande este `rec`) y reclama las noches con
+// transacciones reales — la garantía de anti-doble-reserva ya no depende de las Rules de
+// Firebase para este camino.
+function backendUrl(path){ return (window.__uso_backendBaseUrl || '') + path; }
+function postToBackend(path, body, idempotencyKey){
+  var headers = { 'Content-Type': 'application/json' };
+  if(idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  return fetch(backendUrl(path), { method: 'POST', headers: headers, body: JSON.stringify(body) })
+    .then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        if(res.ok) return data;
+        var err = new Error(data.error || ('http-' + res.status));
+        err.code = data.error || ('http-' + res.status);
+        if(data.missingFields) err.missingFields = data.missingFields;
+        throw err;
       });
-
-  return preCheck.then(function(){
-    var updates = {};
-    updates[pathFor(rec.type) + '/' + rec.code] = rec;
-    var ub = { status: rec.status, type: rec.type };
-    if(rec.type === 'reserva'){
-      ub.checkin = rec.checkin; ub.checkout = rec.checkout;
-      // expiresAt/paymentStatus también se espejan aquí (nodo público, sin datos de
-      // contacto) porque checkNightFree/las rules de reclamo de HOLD vencido necesitan
-      // leerlos sin poder — ni deber — leer el registro privado en reservationsManager/.
-      ub.expiresAt = rec.expiresAt; ub.paymentStatus = rec.paymentStatus;
-      nights.forEach(function(n){ updates['bookedNights/' + unitKey + '/' + n] = rec.code; });
-    } else {
-      ub.visitDate = rec.visitDate; ub.visitTime = rec.visitTime;
-      updates['bookedVisitSlots/' + unitKey + '/' + slotKey] = rec.code;
-    }
-    updates['unitBookings/' + unitKey + '/' + rec.code] = ub;
-    return update(ref(db), updates);
-  }).then(function(){
-    rememberMyCode(rec.code, rec.type);
-    return rec;
-  }).catch(function(err){
-    if(err && (err.code === 'dates-taken' || err.code === 'slot-taken')) throw err;
-    // Pasó el chequeo previo pero el update() atómico igual fue rechazado — alguien más
-    // ganó esas mismas fechas/turno en el instante entre el chequeo y la escritura (carrera
-    // real, no un fallo del código). No tiene sentido reintentar con un código nuevo: lo que
-    // está ocupado son las fechas, no el código.
-    // OJO: a diferencia del error que recibe onValue() (trae `.code === 'PERMISSION_DENIED'`),
-    // get()/update() rechazan con un Error plano SIN `.code`, solo `.message === "Permission
-    // denied"` — hay que detectarlo por el texto, no por `.code` (confirmado en vivo contra
-    // el proyecto real, no asumido).
-    if(isPermissionDenied(err)){
-      var conflict = new Error('conflict'); conflict.code = 'conflict';
-      throw conflict;
-    }
-    throw err;
-  });
+    });
 }
-function isPermissionDenied(err){
-  return !!err && (err.code === 'PERMISSION_DENIED' || /permission[_ ]denied/i.test(err.message || ''));
+
+function createReservation(rec){
+  var path = rec.type === 'cita' ? '/visits' : '/reservations';
+  return postToBackend(path, rec, rec.idempotencyKey).then(function(created){
+    // El código real es el que el backend generó (fb.generateCode() del lado del servidor,
+    // con chequeo de colisión) — YA NO es necesariamente rec.code (el que este navegador
+    // había armado solo para tener algo que mandar). Usar rec.code acá guardaría el código
+    // equivocado en "Mi reserva" — un bug real fácil de pasar por alto porque antes ambos
+    // valores eran siempre el mismo.
+    rememberMyCode(created.code, created.type);
+    return created;
+  });
 }
 
 function getReservation(code){
@@ -349,38 +300,19 @@ function setReservationStatus(code, status){
 }
 
 // El cliente elige método de pago (bank_transfer/cash) para una reserva ya creada (HOLD
-// vigente) — transición de un solo sentido (solo se puede fijar una vez, ver
-// database.rules.json: paymentMethod tiene su propio .write de "crear sin auth", igual que
-// paymentReport). Bloque A del pedido: PaymentProvider abstrae esto (ver index.html), este
-// método es simplemente la escritura real detrás de esa abstracción.
+// vigente) — transición de un solo sentido (el backend ahora reimplementa a mano el
+// write-once que antes hacían las Rules, ver firebase.js:setPaymentMethod). Bloque A del
+// pedido: PaymentProvider abstrae esto (ver index.html), este método es simplemente el POST
+// real detrás de esa abstracción.
 function setPaymentMethod(code, method){
-  return getReservation(code).then(function(rec){
-    if(!rec) throw new Error('reservation-not-found');
-    if(rec.type !== 'reserva') throw new Error('not-a-reservation');
-    var updates = {};
-    updates[pathFor(rec.type) + '/' + code + '/paymentMethod'] = method;
-    return update(ref(db), updates).then(function(){ return getReservation(code); });
-  });
+  return postToBackend('/reservations/' + code + '/payment-method', { method: method });
 }
 
 // Reporte de pago (transferencia bancaria) — el cliente registra referencia/fecha/monto/
-// banco tras hacer la transferencia. Es una transición de UN SOLO SENTIDO ('none' -> 'submitted')
-// permitida sin auth por las rules (ver database.rules.json: paymentStatus y paymentReport
-// tienen su propio .write, más permisivo que el nodo padre, que ya no acepta escritura
-// anónima una vez creada la reserva) — nadie puede revertir un pago reportado ni escribirlo
-// dos veces. Se espeja también en unitBookings para que isHoldExpiredRecord dejе de poder
-// reclamar estas fechas en cuanto se reporta el pago, aunque el HOLD ya haya vencido.
+// banco tras hacer la transferencia. Transición de UN SOLO SENTIDO ('none' -> 'submitted'),
+// ahora reforzada por firebase.js:reportPayment (ya lo hacía) en vez de por las Rules.
 function reportPayment(code, report){
-  return getReservation(code).then(function(rec){
-    if(!rec) throw new Error('reservation-not-found');
-    if(rec.type !== 'reserva') throw new Error('not-a-reservation');
-    var unitKey = unitKeyOf(rec.unitType, rec.unitNum);
-    var updates = {};
-    updates[pathFor(rec.type) + '/' + code + '/paymentStatus'] = 'submitted';
-    updates[pathFor(rec.type) + '/' + code + '/paymentReport'] = report;
-    updates['unitBookings/' + unitKey + '/' + code + '/paymentStatus'] = 'submitted';
-    return update(ref(db), updates).then(function(){ return getReservation(code); });
-  });
+  return postToBackend('/reservations/' + code + '/payment-report', report);
 }
 
 function getPaymentInfo(){ return cache.settings.paymentInfo || null; }

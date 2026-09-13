@@ -1580,12 +1580,32 @@ var HERO_IMG = "media/hero.jpg";
       }, step);
     });
   };
+  // Chequeo rápido de que el backend (Render) responde — desde el plan de migración de
+  // reservas, crear una reserva/elegir método/reportar un pago ya NO es una escritura directa
+  // a Firebase, es un POST real al backend. Firebase activo ya no alcanza para "es seguro
+  // proceder": si Render está frío (cold start de 20-30s, ver ARCHITECTURE.md) o caído, sin
+  // este chequeo el cliente esperaría el timeout completo del POST real en vez de un aviso
+  // rápido y claro. BACKEND_BASE_URL se declara más abajo en este mismo script — para cuando
+  // esta función de verdad se INVOQUE (por una interacción real del usuario), el script entero
+  // ya terminó de correr y esa variable ya está asignada (mismo criterio que hasRouted/
+  // viewTransitionActive más abajo en este archivo).
+  function backendReachable(maxMs){
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ ctrl.abort(); }, maxMs) : null;
+    return fetch(BACKEND_BASE_URL + '/health', ctrl ? {signal: ctrl.signal} : {})
+      .then(function(res){ if(timer) clearTimeout(timer); return res.ok; })
+      .catch(function(){ if(timer) clearTimeout(timer); return false; });
+  }
   // Punto único que usan submitReservation()/mountPaymentSection() antes de escribir nada
   // crítico — ver §1 del pedido ("no fallback silencioso a información ficticia"). Devuelve
-  // true si es seguro proceder (Firebase activo, o nunca configurado — modo demo intencional).
+  // true si es seguro proceder (Firebase activo Y backend alcanzable, o Firebase nunca
+  // configurado — modo demo intencional, ver LocalDataProvider).
   window.__uso_assertConnected = function(maxMs){
     if(!window.__uso_isFirebaseConfigured()) return Promise.resolve(true);
-    return window.__uso_waitForFirebaseActivation(maxMs);
+    return window.__uso_waitForFirebaseActivation(maxMs).then(function(active){
+      if(!active) return false;
+      return backendReachable(Math.min(maxMs, 3000));
+    });
   };
   // También refresca el calendario de ocupación del modal de reserva si sigue abierto — así
   // una fecha que otro visitante acaba de tomar se marca como ocupada sin que este visitante
@@ -1737,6 +1757,10 @@ var HERO_IMG = "media/hero.jpg";
         name: data.name, phone: data.phone, email: data.email, notes: data.notes,
         status: 'pendiente'
       };
+      // Solo lo usa FirebaseDataProvider.createReservation (header Idempotency-Key hacia el
+      // backend) — LocalDataProvider lo ignora sin problema, y el backend descarta code/
+      // status/etc. de todas formas y recalcula todo server-side (ver reservationBuilder.js).
+      if(data.idempotencyKey) rec.idempotencyKey = data.idempotencyKey;
       if(type === 'reserva'){
         rec.checkin = data.checkin; rec.checkout = data.checkout; rec.nights = data.nights;
         rec.guests = data.guests; rec.estTotal = data.estTotal;
@@ -1835,6 +1859,11 @@ var HERO_IMG = "media/hero.jpg";
   // Render que ya atiende el bot de WhatsApp (whatsapp-assistant/), ahora con rutas nuevas
   // para estos dos canales (ver el plan de "chat web + correo gratis + middleware admin").
   var BACKEND_BASE_URL = 'https://usoinmobiliario-whatsapp-bot.onrender.com';
+  // FirebaseDataProvider.js es un módulo ES aparte (type="module") — no ve las variables de
+  // este <script> normal, así que se expone en window (mismo criterio ya usado para
+  // __uso_isoLocal/__uso_nightsBetween). Los módulos siempre corren diferidos, después de que
+  // este script principal ya terminó, así que el orden nunca es un problema acá.
+  window.__uso_backendBaseUrl = BACKEND_BASE_URL;
 
   // Conteo de tráfico del sitio para el panel de analíticas (usoinmobiliario-middleware) —
   // SOLO un contador agregado por día y por página en el backend (ver
@@ -2659,6 +2688,18 @@ var HERO_IMG = "media/hero.jpg";
       next2.addEventListener('click', validateStep2);
     }
 
+    // Una clave nueva por cada entrada REAL al paso 3 (no una por todo el flujo): si el
+    // cliente vuelve a "atrás" y cambia fechas/huéspedes, esas fechas son un intento lógico
+    // distinto y deben reclamar noches con una clave propia — reusar la vieja haría que un
+    // reintento devolviera el resultado cacheado de ANTES del cambio (ver plan de migración de
+    // reservas). Un reintento manual del mismo clic en el MISMO paso 3 (tras un error de red)
+    // sí reusa esta misma clave — eso es exactamente lo que Idempotency-Key debe evitar
+    // duplicar.
+    function genIdempotencyKey(){
+      try{ if(window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID(); }catch(e){}
+      return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    }
+
     function toggleFieldError(fieldId, errId, isError){
       document.getElementById(fieldId).classList.toggle('bk-field-error', isError);
       document.getElementById(errId).classList.toggle('show', isError);
@@ -2691,7 +2732,7 @@ var HERO_IMG = "media/hero.jpg";
       document.getElementById('errConsent').classList.toggle('show', !state.consent);
       if(!state.consent) ok=false;
 
-      if(ok){ state.step=3; render(); }
+      if(ok){ state.idempotencyKey = genIdempotencyKey(); state.step=3; render(); }
     }
 
     function renderStep3(){
@@ -2753,7 +2794,8 @@ var HERO_IMG = "media/hero.jpg";
         name: state.name,
         phone: state.phone,
         email: state.email,
-        notes: state.notes
+        notes: state.notes,
+        idempotencyKey: state.idempotencyKey
       };
       var promise;
       if(isVisit){

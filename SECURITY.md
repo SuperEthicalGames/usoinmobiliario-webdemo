@@ -35,8 +35,11 @@ token coincida con el rol correcto (`requireSuperAdmin`), nunca solo `auth != nu
   extra sobre las Realtime Database Rules (el backend usa el Admin SDK, que se las salta por
   completo).
 - **Sitio público y WhatsApp/chat:** sin autenticación, por diseño — el negocio no pide cuenta
-  para reservar. La integridad de esas operaciones depende de las Rules (sitio) o de la
-  reimplementación en `firebase.js` (bot), no de quién es el remitente.
+  para reservar. Desde 2026-09-13 (ver "Migración de escrituras al backend" en
+  `ARCHITECTURE.md`) la integridad de AMBOS canales depende de la misma reimplementación en
+  `firebase.js`/`reservationBuilder.js` — el sitio ya no escribe directo a Firebase, así que ya
+  no depende de las Rules para esto. Sigue sin depender de quién es el remitente: el código de
+  reserva (`{code}`) es la única credencial en ambos casos.
 
 ## Autorización
 
@@ -70,9 +73,12 @@ token coincida con el rol correcto (`requireSuperAdmin`), nunca solo `auth != nu
 - Idempotencia (`idempotency/{key}`, desde 2026-09-13): `POST /admin/api/reservations` acepta un
   header `Idempotency-Key` — un doble-click o un reintento de red con la misma clave devuelve el
   registro ya creado en vez de duplicarlo. Reclamo atómico vía transacción de Firebase (mismo
-  criterio que `claimNightAtomically`). Alcance: rutas admin del backend; el sitio público sigue
-  escribiendo reservas/pagos directo a Firebase desde el navegador, un mecanismo distinto, fuera
-  de alcance de este cambio (ver `AUDITORIA_EXTERNA_2026_09.md` §5).
+  criterio que `claimNightAtomically`), con una limpieza de claves `pending` con más de 30s
+  (`withIdempotency`, `firebase.js`) para que un proceso reiniciado a mitad de un request no deje
+  una clave atascada para siempre. Mismo día, extendido a `POST /reservations`/`/visits` (sitio
+  público) — el hueco que `AUDITORIA_EXTERNA_2026_09.md` §5 marcaba como "fuera de alcance" quedó
+  cerrado como parte de la migración de escrituras al backend (ver `ARCHITECTURE.md`), no en una
+  sesión aparte.
 
 ## Gestión de secretos
 
@@ -104,8 +110,12 @@ público, hasta que se confirme y corrija.
 
 - No hay Firebase App Check — un cliente que reconstruya el `firebaseConfig` real (no es
   secreto) puede llamar a la Realtime Database directamente sin pasar por el sitio ni por
-  ninguna app "genuina". Las Rules son la única barrera real para ese camino, y están escritas
-  asumiendo exactamente eso (ver Regla B en `SECURITY_AUDIT.md`).
+  ninguna app "genuina". Las Rules son la única barrera real para ese camino. Antes de la
+  migración de escrituras al backend, ese camino directo alcanzaba para CREAR una reserva/pago
+  falso (las Rules lo permitían a propósito, para el sitio real); una vez publicadas las Rules
+  nuevas (paso manual, ver `DEPLOYMENT.md`), ese mismo camino directo solo puede LEER — cualquier
+  escritura, con o sin `firebaseConfig` real, exige `auth != null`, que un visitante anónimo
+  nunca tiene.
 - No hay verificación de identidad del cliente final (nombre/teléfono/correo de una reserva son
   auto-declarados, nunca verificados contra un documento real) — es una decisión de negocio ya
   tomada (el modelo de reserva no la requiere), no un descuido.

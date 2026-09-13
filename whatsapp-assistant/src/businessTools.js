@@ -4,6 +4,7 @@ const dateUtil = require('./dateUtil');
 const validators = require('./validators');
 const config = require('../config');
 const emailService = require('./emailService');
+const reservationBuilder = require('./reservationBuilder');
 
 // Las únicas funciones que el modelo de IA puede invocar (function calling) — ver aiAgent.js
 // para las declaraciones que se le exponen a Gemini. Cada una valida su entrada y devuelve
@@ -158,61 +159,8 @@ async function calculatePriceTool({ typeKey, num, checkin, checkout, guests } = 
 // 15 minutos, exige correo, re-verifica disponibilidad con reclamo atómico justo antes de
 // escribir (ver firebase.js createReservation). Nunca confirma nada.
 async function createReservationHold(args = {}) {
-  const { typeKey, num, checkin, checkout, guests, name, phone, email, notes } = args;
   try {
-    const missing = validators.missingReservationFields(args);
-    if (missing.length > 0) return { ok: false, missingFields: missing, error: `Falta información: ${missing.join(', ')}.` };
-
-    const apt = await fb.getApartment(typeKey, num);
-    if (!apt) return { ok: false, error: 'No existe ese apartamento.' };
-    if (!isUnitBookable(apt)) return { ok: false, error: 'Ese apartamento no está disponible para reservar en este momento.' };
-    // missingReservationFields solo valida que guests sea un entero positivo — nunca contra
-    // el apartamento real, porque en ese punto todavía no se ha resuelto cuál es (num podría
-    // resolverse por typeKey+num o solo por num, ver findApartmentByNum). El modelo de IA
-    // puede, bajo presión o un dato mal extraído del cliente, pedir una reserva con más
-    // huéspedes de los que la unidad admite — hallazgo real de esta auditoría: nada lo
-    // impedía server-side antes de este chequeo, solo el prompt "sugería" respetar maxPersons.
-    if (apt.maxPersons && Number(guests) > apt.maxPersons) {
-      return { ok: false, error: `Ese apartamento admite máximo ${apt.maxPersons} huésped(es).` };
-    }
-
-    const availability = await fb.checkAvailability(apt.typeKey, apt.num, checkin, checkout);
-    if (!availability.available) {
-      return {
-        ok: false,
-        error: availability.reason === 'confirmed_reservation'
-          ? 'Esas fechas ya tienen una reserva confirmada.'
-          : 'Esas fechas están en HOLD temporal de otra persona ahora mismo.',
-      };
-    }
-
-    const nights = dateUtil.nightsBetween(checkin, checkout).length;
-    const snapshot = pricing.priceBreakdown(apt, nights, guests);
-
-    const rec = {
-      code: fb.generateCode(),
-      type: 'reserva',
-      createdAt: new Date().toISOString(),
-      unitType: apt.typeKey,
-      unitNum: apt.num,
-      unitLabel: apartmentLabel(apt.typeKey, apt.num),
-      name: String(name).trim(),
-      phone: String(phone).trim(),
-      email: String(email).trim(),
-      notes: notes ? String(notes).trim() : '',
-      status: 'pendiente',
-      checkin,
-      checkout,
-      nights,
-      guests,
-      paymentStatus: 'none',
-      expiresAt: dateUtil.nowEpochMs() + config.holdDurationMs,
-    };
-    if (snapshot) {
-      rec.estTotal = snapshot.total;
-      rec.priceSnapshot = snapshot;
-    }
-
+    const rec = await reservationBuilder.buildReservationRecord(args);
     const created = await fb.createReservation(rec);
 
     // Fire-and-forget: el correo es un canal, no la fuente de verdad (misma regla ya
@@ -231,6 +179,21 @@ async function createReservationHold(args = {}) {
       currency: 'COP',
     };
   } catch (err) {
+    // reservationBuilder lanza errores tipados (.code/.message), nunca frases en español — cada
+    // caller (acá el bot, la ruta HTTP pública, la ruta admin) las traduce a su propio contrato.
+    if (err.message === 'invalid-reservation-fields') {
+      return { ok: false, missingFields: err.missingFields, error: `Falta información: ${err.missingFields.join(', ')}.` };
+    }
+    if (err.message === 'apartment-not-found') return { ok: false, error: 'No existe ese apartamento.' };
+    if (err.message === 'capacity-exceeded') return { ok: false, error: `Ese apartamento admite máximo ${err.maxPersons} huésped(es).` };
+    if (err.message === 'dates-taken') {
+      return {
+        ok: false,
+        error: err.reason === 'confirmed_reservation'
+          ? 'Esas fechas ya tienen una reserva confirmada.'
+          : 'Esas fechas están en HOLD temporal de otra persona ahora mismo.',
+      };
+    }
     if (err.code === 'conflict') {
       return { ok: false, error: 'Justo se ocuparon esas fechas — intenta con otras fechas o apartamento.' };
     }
@@ -267,44 +230,15 @@ async function getReservationTool({ code } = {}) {
 
 // Cita general (sin apartamento) o específica (con typeKey+num) — sección 16-18 del pedido.
 async function createVisit(args = {}) {
-  const { typeKey, num, name, phone, email, notes, visitDate, visitTime } = args;
   try {
-    const missing = validators.missingVisitFields(args);
-    if (missing.length > 0) return { ok: false, missingFields: missing, error: `Falta información: ${missing.join(', ')}.` };
-
-    const isGeneral = !typeKey || !num;
-    let unitLabel = 'Visita general';
-    let resolvedTypeKey = null;
-    let resolvedNum = null;
-    if (!isGeneral) {
-      const apt = await fb.getApartment(typeKey, num);
-      if (!apt) return { ok: false, error: 'No existe ese apartamento.' };
-      if (!isUnitBookable(apt)) return { ok: false, error: 'Ese apartamento no está disponible para agendar visita en este momento.' };
-      resolvedTypeKey = apt.typeKey;
-      resolvedNum = apt.num;
-      unitLabel = apartmentLabel(apt.typeKey, apt.num);
-    }
-
-    const rec = {
-      code: fb.generateCode(),
-      type: 'cita',
-      createdAt: new Date().toISOString(),
-      unitType: resolvedTypeKey,
-      unitNum: resolvedNum,
-      unitLabel,
-      name: String(name).trim(),
-      phone: String(phone).trim(),
-      email: String(email).trim(),
-      notes: notes ? String(notes).trim() : '',
-      status: 'pendiente',
-      visitDate,
-      visitTime,
-      appointmentType: isGeneral ? 'general_visit' : 'specific_visit',
-    };
-
+    const { rec, isGeneral } = await reservationBuilder.buildVisitRecord(args);
     const created = isGeneral ? await fb.createGeneralVisit(rec) : await fb.createSpecificVisit(rec);
     return { ok: true, code: created.code };
   } catch (err) {
+    if (err.message === 'invalid-visit-fields') {
+      return { ok: false, missingFields: err.missingFields, error: `Falta información: ${err.missingFields.join(', ')}.` };
+    }
+    if (err.message === 'apartment-not-found') return { ok: false, error: 'No existe ese apartamento.' };
     if (err.code === 'conflict') {
       return { ok: false, error: 'Justo se ocupó ese horario — intenta con otra fecha/hora.' };
     }
@@ -333,6 +267,7 @@ async function setPaymentMethodTool({ code, method } = {}) {
     return { ok: true };
   } catch (err) {
     if (err.code === 'not-found') return { ok: false, error: 'No existe una reserva con ese código.' };
+    if (err.message === 'payment-method-already-set') return { ok: false, error: 'Ya se había elegido un método de pago para esta reserva.' };
     console.error('[businessTools.setPaymentMethod]', err);
     return { ok: false, error: 'No se pudo registrar el método de pago en este momento.' };
   }

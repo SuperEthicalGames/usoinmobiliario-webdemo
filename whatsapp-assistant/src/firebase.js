@@ -184,6 +184,14 @@ async function createApartment(typeKey, num, data) {
 // pueden ganar ambas la carrera de "quién ejecuta de verdad". Alcance de esta sesión: rutas
 // admin del backend (/admin/api/*) — el sitio público escribe reservas/pagos directo a Firebase
 // desde el navegador, un mecanismo distinto (fuera de alcance, ver plan). ---
+// Una clave 'pending' se queda atascada para siempre solo si el proceso se cae ENTRE reclamarla
+// y terminar fn() (el catch de abajo ya libera la clave en cualquier falla normal). Antes esto
+// era aceptable porque el único caller era un admin autenticado reintentando a mano un botón; al
+// generalizarse a una ruta pública, sin autenticar, propensa a reintentos de red reales (celular
+// con mala señal), un proceso reiniciado a mitad de un request ajeno dejaría esa clave
+// devolviendo 'conflict' para siempre, sin que el cliente pueda hacer nada al respecto. Una
+// 'pending' con más de 30s es, en la práctica, abandonada — nada en este backend tarda tanto.
+const IDEMPOTENCY_STUCK_MS = 30 * 1000;
 async function withIdempotency(key, fn) {
   if (!key) return fn(); // sin clave, comportamiento de siempre — no se puede deduplicar sin ella
   const ref = db().ref(`idempotency/${key}`);
@@ -195,6 +203,10 @@ async function withIdempotency(key, fn) {
     const existing = await dbGet(`idempotency/${key}`);
     const val = existing.val();
     if (val && val.status === 'done') return val.result;
+    if (val && val.status === 'pending' && (Date.now() - val.createdAt) > IDEMPOTENCY_STUCK_MS) {
+      await ref.remove().catch(() => {});
+      return withIdempotency(key, fn); // reintenta el reclamo ahora que la clave quedó libre
+    }
     // Todavía en vuelo (mismo request real duplicado, no un reintento tras fallo) — no bloquear
     // indefinidamente al segundo request, que reporte conflicto y el cliente decida reintentar.
     const e = new Error('duplicate-request-in-progress'); e.code = 'conflict'; throw e;
@@ -273,6 +285,36 @@ async function reclaimExpiredHold(unitKey, checkin, checkout) {
   } catch {
     /* mejor esfuerzo, ignorar */
   }
+}
+
+// Barrido periódico de HOLDs vencidos — hasta ahora la única forma de liberar un HOLD vencido
+// era un cliente anónimo escribiendo bookedNights=null como efecto secundario de leer
+// disponibilidad (reclaimExpiredHold arriba, disparado desde checkNight/getOccupiedDates en el
+// sitio público). Una vez que las Rules dejen de permitir esa escritura anónima (ver plan de
+// migración de reservas), esa habría sido la ÚNICA forma de liberar un HOLD abandonado — sin
+// este barrido, cada reserva no pagada que expira dejaría sus noches bloqueadas para siempre
+// (nadie volvería a "tropezar" con ellas leyendo disponibilidad para ESE unit exacto). Recorre
+// TODO unitBookings (17 apartamentos, decenas de reservas — a esta escala un solo fetch es más
+// simple que una query indexada) y reclama cualquier HOLD que isHoldExpired() marque.
+async function sweepExpiredHolds() {
+  const allBookings = await getAllUnitBookings();
+  const nowMs = nowEpochMs();
+  for (const [unitKey, bookings] of Object.entries(allBookings)) {
+    for (const booking of Object.values(bookings || {})) {
+      if (isHoldExpired(booking, nowMs) && booking.checkin && booking.checkout) {
+        // eslint-disable-next-line no-await-in-loop
+        await reclaimExpiredHold(unitKey, booking.checkin, booking.checkout);
+      }
+    }
+  }
+}
+
+// Arrancado una sola vez desde app.js (mismo patrón que conversationStore.startCleanupLoop) —
+// 5 minutos alcanza de sobra para un HOLD de 15.
+function startHoldSweepLoop() {
+  setInterval(() => {
+    sweepExpiredHolds().catch((err) => console.error('[firebase] sweepExpiredHolds falló:', err));
+  }, 5 * 60 * 1000).unref();
 }
 
 // Puerto de checkNightAsync (Unity) / checkNightFree (index.html): {free, reason}. Reclama de
@@ -484,10 +526,16 @@ async function reportPayment(code, report) {
   return getReservationByCode(code);
 }
 
+// Mismo guardado condicional que hacía la regla de Firebase para este campo
+// (auth != null || !data.exists() — escritura anónima de una sola vez), replicado acá porque
+// Admin SDK no pasa por esa regla. Sin este chequeo (hallazgo real al generalizar esta función
+// para la ruta pública nueva), cualquiera con el código podía cambiar el método de pago ida y
+// vuelta después de que el cliente ya se hubiera decidido — antes las Rules lo impedían solas.
 async function setPaymentMethod(code, method) {
   const rec = await getReservationByCode(code);
   if (!rec) { const e = new Error('reservation-not-found'); e.code = 'not-found'; throw e; }
   if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'invalid'; throw e; }
+  if (rec.paymentMethod) { const e = new Error('payment-method-already-set'); e.code = 'invalid'; throw e; }
   await dbSet(`${pathFor('reserva')}/${code}/paymentMethod`, method);
   return getReservationByCode(code);
 }
@@ -1005,6 +1053,8 @@ module.exports = {
   getUnitBookings,
   checkAvailability,
   effectiveStatus,
+  sweepExpiredHolds,
+  startHoldSweepLoop,
   createReservation,
   createSpecificVisit,
   createGeneralVisit,

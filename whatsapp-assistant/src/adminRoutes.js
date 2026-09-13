@@ -1,10 +1,8 @@
 const express = require('express');
 const fb = require('./firebase');
 const pricing = require('./pricing');
-const dateUtil = require('./dateUtil');
-const validators = require('./validators');
 const emailService = require('./emailService');
-const config = require('../config');
+const reservationBuilder = require('./reservationBuilder');
 const { requireSuperAdmin, requireRole } = require('./adminAuth');
 
 // Staff operativo (dueño incluido) — todo lo que NO es exclusivamente para tareas de un
@@ -51,7 +49,9 @@ function asyncHandler(fn) {
       : err.code === 'conflict' ? 409
       : 500);
     if (status === 500) console.error(`[adminRoutes] ${req.method} ${req.originalUrl}:`, err);
-    res.status(status).json({ error: err.code || 'internal-error' });
+    // missingFields (reservationBuilder, apartment routes) se preserva cuando el error la trae —
+    // el panel ya sabe leer este campo (ver Reservations.tsx/ManualReservation), no es nuevo.
+    res.status(status).json({ error: err.code || 'internal-error', ...(err.missingFields ? { missingFields: err.missingFields } : {}) });
   });
 }
 
@@ -164,46 +164,19 @@ router.get('/me', asyncHandler(async (req, res) => {
 // MISMA fórmula/forma que businessTools.createReservationHold — status:'pendiente' + HOLD de
 // 15 minutos SIEMPRE, sin atajo especial de admin (igual que ReservationService.cs de Unity:
 // si se quiere confirmada de una, es un Confirm aparte después, no una tercera ruta inventada).
+// Idempotencia (sección 25 del pedido): un doble-click en "Crear reserva" desde el panel, o un
+// reintento de red, no debe dejar dos reservas distintas para el mismo intento — el panel manda
+// un Idempotency-Key por request real (ver api.ts), un reintento real reusa la misma. TODO el
+// trabajo (armar el registro + reclamo de fechas + escritura) vive DENTRO de withIdempotency, no
+// solo la escritura final: si building/disponibilidad corriera afuera, un reintento de una
+// solicitud que YA tuvo éxito volvería a chequear disponibilidad contra sus propias noches
+// recién reclamadas y fallaría con 'conflict' en vez de devolver el resultado cacheado — el
+// punto entero de la idempotencia es no rehacer NADA del trabajo, no solo el paso final.
 router.post('/reservations', STAFF, asyncHandler(async (req, res) => {
-  const { typeKey, num, checkin, checkout, guests, name, phone, email, notes } = req.body || {};
-  const missing = validators.missingReservationFields({ num, checkin, checkout, guests, name, phone, email });
-  if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
-
-  const apt = await fb.getApartment(typeKey, num);
-  if (!apt) return res.status(404).json({ error: 'apartment-not-found' });
-  if (apt.maxPersons && Number(guests) > apt.maxPersons) {
-    return res.status(400).json({ error: 'invalid', missingFields: [`máximo ${apt.maxPersons} huésped(es) para este apartamento`] });
-  }
-
-  const nights = dateUtil.nightsBetween(checkin, checkout).length;
-  const snapshot = pricing.priceBreakdown(apt, nights, guests);
-  const rec = {
-    code: fb.generateCode(),
-    type: 'reserva',
-    createdAt: new Date().toISOString(),
-    unitType: apt.typeKey,
-    unitNum: apt.num,
-    unitLabel: `Apartamento H${apt.num}`,
-    name: String(name).trim(),
-    phone: String(phone).trim(),
-    email: String(email).trim(),
-    notes: notes ? String(notes).trim() : '',
-    status: 'pendiente',
-    checkin,
-    checkout,
-    nights,
-    guests,
-    paymentStatus: 'none',
-    expiresAt: dateUtil.nowEpochMs() + config.holdDurationMs,
-  };
-  if (snapshot) { rec.estTotal = snapshot.total; rec.priceSnapshot = snapshot; }
-
-  // Idempotencia (sección 25 del pedido): un doble-click en "Crear reserva" desde el panel, o
-  // un reintento de red, no debe dejar dos reservas distintas para el mismo intento — el panel
-  // manda un Idempotency-Key por request real (ver api.ts), un reintento real reusa la misma.
   const created = await fb.withIdempotency(req.headers['idempotency-key'], async () => {
+    const rec = await reservationBuilder.buildReservationRecord(req.body || {});
     const rec2 = await fb.createReservation(rec);
-    await logAction(req, 'reservation.create_manual', rec2.code, { unitType: apt.typeKey, unitNum: apt.num });
+    await logAction(req, 'reservation.create_manual', rec2.code, { unitType: rec2.unitType, unitNum: rec2.unitNum });
     return rec2;
   });
   res.status(201).json(created);

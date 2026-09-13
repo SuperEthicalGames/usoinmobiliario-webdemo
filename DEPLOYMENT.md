@@ -68,6 +68,16 @@ servicio de Render real.
   paso **manual** en la consola de Firebase (Realtime Database → Reglas → pegar el contenido del
   archivo → Publicar). Repetir cada vez que el archivo cambie. No asumir que el archivo del repo
   y lo publicado coinciden sin confirmarlo ahí.
+  - **Pendiente desde la migración de escrituras al backend (2026-09-13, ver
+    `ARCHITECTURE.md`):** el archivo del repo ya quitó toda escritura anónima
+    (`reservationsManager/*`, `unitBookings`, `bookedNights`, `bookedVisitSlots`,
+    `paymentMethod`/`paymentStatus`/`paymentReport` ahora exigen `auth != null`) — esto SOLO debe
+    publicarse **después** de confirmar en producción que el sitio ya crea reservas/pagos a
+    través del backend nuevo (`whatsapp-assistant` con `reservationBuilder.js` desplegado), nunca
+    antes. Publicarlo antes de tiempo bloquearía toda reserva real del sitio público. Recomendado
+    en dos tandas, no de una sola vez: primero `reservationsManager/*` + `unitBookings`, verificar
+    un día real de tráfico, después `bookedNights`/`bookedVisitSlots`/los tres campos de pago —
+    así un problema en una tanda no oculta si la otra también lo tenía.
 - **Firebase Authentication:** Email/Password habilitado, con una sola cuenta creada a mano para
   arrancar (el super admin, `SUPER_ADMIN_EMAIL` en el backend debe coincidir con su email
   exacto). Cuentas adicionales se crean desde `Admins.tsx` en el panel, nunca a mano después de
@@ -99,6 +109,8 @@ Esto es una decisión de infraestructura pendiente del dueño del proyecto, no u
 [ ] WHATSAPP_APP_SECRET configurado en Render (o se acepta que el webhook quede cerrado)
 [ ] NODE_ENV=production presente en Render (ya en render.yaml — confirmar en el dashboard)
 [ ] Reglas de Firebase publicadas en la consola coinciden con firebase/database.rules.json
+    (si vienen de la migración de escrituras al backend: SOLO después de confirmar que el
+    sitio público ya reserva a través del backend nuevo, ver sección de arriba)
 [ ] .env NUNCA commiteado (verificar git status antes de push)
 [ ] npm audit revisado si se tocaron dependencias
 [ ] Build del panel (`npm run build`) sin errores de TypeScript

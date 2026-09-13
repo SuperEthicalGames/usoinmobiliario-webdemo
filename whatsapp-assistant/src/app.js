@@ -5,6 +5,9 @@ const whatsapp = require('./whatsapp');
 const aiAgent = require('./aiAgent');
 const conversationStore = require('./conversationStore');
 const emailService = require('./emailService');
+const reservationBuilder = require('./reservationBuilder');
+const validators = require('./validators');
+const dateUtil = require('./dateUtil');
 const { normalizeMarkup } = require('./markup');
 const { requireAdminAuth, attachRole } = require('./adminAuth');
 const adminRoutes = require('./adminRoutes');
@@ -15,6 +18,12 @@ const config = require('../config');
 // la envuelve con onRequest() y maneja el puerto/ciclo de vida por su cuenta).
 firebase.init();
 conversationStore.startCleanupLoop();
+// Ver el hallazgo crítico del plan de migración de reservas: una vez que el sitio público deje
+// de escribir directo a Firebase, este barrido pasa a ser la ÚNICA forma de liberar un HOLD
+// vencido (antes era un efecto secundario de que alguien, quien sea, chequeara disponibilidad
+// para esa unidad exacta). Arrancado siempre, no solo cuando las Rules ya estén cerradas —
+// reclamar un HOLD vencido nunca es incorrecto, con o sin las Rules viejas todavía activas.
+firebase.startHoldSweepLoop();
 
 const app = express();
 // Render (como cualquier PaaS) pone la app detrás de su propio proxy/load balancer — sin
@@ -43,7 +52,9 @@ const SITE_ORIGIN = new URL(config.siteBaseUrl).origin;
 function allowSiteOrigin(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', SITE_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Idempotency-Key: nuevo, para /reservations y /visits (ver plan de migración de reservas) —
+  // sin sumarlo acá, un navegador real bloquea el preflight de cualquier request que la incluya.
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Idempotency-Key');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 }
@@ -187,6 +198,72 @@ app.post('/email/payment-reported', allowSiteOrigin, async (req, res) => {
   }
 });
 
+// Reservas/citas/pagos del sitio público — antes escritas directo a Firebase desde el
+// navegador (Rules como única barrera); ahora el backend es dueño de la escritura para TODOS
+// los canales, no solo WhatsApp/chat (ver plan de migración de reservas). reservationBuilder
+// hace el mismo validar->resolver->tope->disponibilidad->precio->armar registro que ya usan
+// businessTools.js/adminRoutes.js — un tercer lugar reinventándolo habría sido exactamente el
+// tipo de duplicación que ya causó un bug real (el tope de huéspedes) una vez.
+//
+// Respuesta de éxito: el registro COMPLETO (no el subconjunto angosto que devuelve el bot) —
+// index.html espera exactamente lo que FirebaseDataProvider.createReservation devolvía antes
+// (el mismo `rec` que se acababa de escribir), para poder seguir renderizando el paso 4, la
+// tarjeta descargable, etc. sin ningún cambio en esos call sites.
+const RESERVATION_ERROR_STATUS = { invalid: 400, 'not-found': 404 };
+function reservationErrorStatus(err) {
+  return RESERVATION_ERROR_STATUS[err.code] || (err.code === 'conflict' ? 409 : 500);
+}
+function sendReservationError(req, res, err) {
+  const status = reservationErrorStatus(err);
+  if (status === 500) console.error(`[app] ${req.method} ${req.originalUrl}:`, err);
+  res.status(status).json({ error: err.code || 'internal-error', ...(err.missingFields ? { missingFields: err.missingFields } : {}) });
+}
+
+// Mismo orden de magnitud que chatLimiter (escrituras reales, no solo lectura) — una sesión de
+// reserva normal manda como mucho un puñado de intentos (colisión de código, reintento tras un
+// error de red), nunca decenas.
+const reservationLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate-limited' },
+});
+
+// Idempotency-Key (sección 25 del pedido, antes fuera de alcance para el sitio público — ver
+// AUDITORIA_EXTERNA_2026_09.md §5): TODO el trabajo va dentro de withIdempotency, no solo la
+// escritura final — mismo motivo exacto que en adminRoutes.js's POST /reservations (un reintento
+// de una solicitud ya exitosa no debe rechequear disponibilidad contra sus propias noches recién
+// reclamadas). Esta ruta NO manda el correo de confirmación — a diferencia del bot (que no tiene
+// ningún cliente JS propio orquestando un segundo paso), index.html ya hace esa llamada aparte a
+// /email/reservation-confirmation justo después de que esto responde (ver sendReservationEmail
+// en index.html); mandarlo también acá lo duplicaría.
+app.options('/reservations', allowSiteOrigin);
+app.post('/reservations', allowSiteOrigin, reservationLimiter, async (req, res) => {
+  try {
+    const created = await firebase.withIdempotency(req.headers['idempotency-key'], async () => {
+      const rec = await reservationBuilder.buildReservationRecord(req.body || {});
+      return firebase.createReservation(rec);
+    });
+    res.status(201).json(created);
+  } catch (err) {
+    sendReservationError(req, res, err);
+  }
+});
+
+app.options('/visits', allowSiteOrigin);
+app.post('/visits', allowSiteOrigin, reservationLimiter, async (req, res) => {
+  try {
+    const created = await firebase.withIdempotency(req.headers['idempotency-key'], async () => {
+      const { rec, isGeneral } = await reservationBuilder.buildVisitRecord(req.body || {});
+      return isGeneral ? firebase.createGeneralVisit(rec) : firebase.createSpecificVisit(rec);
+    });
+    res.status(201).json(created);
+  } catch (err) {
+    sendReservationError(req, res, err);
+  }
+});
+
 // Conteo de tráfico del sitio público (sección "público visitado" del panel de analíticas) —
 // público y sin requireAdminAuth a propósito, igual que /chat/web/message: el navegador de un
 // visitante nunca tiene ni puede tener un token de admin. Guarda SOLO un contador agregado por
@@ -200,6 +277,65 @@ const trafficLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'rate-limited' },
 });
+
+// Elegir método de pago / reportar un pago — mismo criterio de "el código ES la credencial"
+// que ya regía database.rules.json (una reserva se identifica por su código de 3 letras+3
+// dígitos, sin enumeración posible; quien lo tiene, la controla — decisión ya tomada y
+// documentada en SECURITY.md, no reabierta acá). trafficLimiter (no reservationLimiter): esto
+// nunca crea nada nuevo, mismo costo/riesgo que un pageview.
+app.options('/reservations/:code/payment-method', allowSiteOrigin);
+app.post('/reservations/:code/payment-method', allowSiteOrigin, trafficLimiter, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const { method } = req.body || {};
+    if (!validators.isValidCodeFormat(code)) return res.status(400).json({ error: 'invalid' });
+    if (method !== 'bank_transfer' && method !== 'cash') return res.status(400).json({ error: 'invalid' });
+    const updated = await firebase.setPaymentMethod(code, method);
+    res.json(updated);
+  } catch (err) {
+    sendReservationError(req, res, err);
+  }
+});
+
+// El cliente reporta haber pagado — SOLO 'submitted', nunca 'verified' (regla crítica ya
+// establecida, ver firebase.js:reportPayment). Valida acá lo que antes validaba
+// database.rules.json's .validate sobre paymentReport (Admin SDK se lo salta, ver plan de
+// migración): monto/referencia/banco no-placeholder (validators.missingPaymentReportFields, ya
+// existe y ya lo usa el bot — reusarlo acá es lo que cierra el hueco de "el sitio público nunca
+// pasaba por este chequeo"), fecha con formato real, proofUrl https-only si viene. Tampoco manda
+// el correo de "pago reportado" acá — index.html ya llama aparte a /email/payment-reported justo
+// después de que esto responde (mismo motivo que en POST /reservations, arriba).
+function isSafeProofUrl(url) {
+  if (url == null || url === '') return true;
+  return typeof url === 'string' && url.length < 2000 && /^https:\/\//.test(url);
+}
+app.options('/reservations/:code/payment-report', allowSiteOrigin);
+app.post('/reservations/:code/payment-report', allowSiteOrigin, trafficLimiter, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!validators.isValidCodeFormat(code)) return res.status(400).json({ error: 'invalid' });
+    const { amount, reference, bank, date, proofUrl } = req.body || {};
+    const missing = validators.missingPaymentReportFields({ amount, reference, bank });
+    if (!dateUtil.isValidIsoDate(date)) missing.push('fecha');
+    if (!isSafeProofUrl(proofUrl)) missing.push('comprobante (URL inválida)');
+    if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
+
+    const report = {
+      amount: Number(amount),
+      reference: String(reference).trim(),
+      bank: String(bank).trim(),
+      date,
+      reportedAt: new Date().toISOString(),
+    };
+    if (proofUrl) report.proofUrl = String(proofUrl).trim();
+
+    const updated = await firebase.reportPayment(code, report);
+    res.json(updated);
+  } catch (err) {
+    sendReservationError(req, res, err);
+  }
+});
+
 app.options('/track/pageview', allowSiteOrigin);
 app.post('/track/pageview', allowSiteOrigin, trafficLimiter, async (req, res) => {
   const { path } = req.body || {};
