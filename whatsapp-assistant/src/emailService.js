@@ -285,19 +285,15 @@ function rateLimited(code) {
   return attempts.length > MAX_SENDS_PER_CODE_PER_HOUR;
 }
 
-// Único punto real de envío del correo de confirmación — lo llaman tanto la ruta HTTP nueva
-// (index.html: envío inicial y reenvío desde "Mi reserva") como, en proceso y sin esperar
-// (fire-and-forget), businessTools.createReservationHold cuando el bot crea una reserva.
-//
-// SIEMPRE busca el registro completo del lado del servidor por código — nunca confía en datos
-// que mande el cliente, a diferencia del Worker de Cloudflare anterior — y EXIGE que el correo
-// recibido coincida con el guardado en la reserva antes de mandar nada: los códigos son de
-// lectura pública por diseño (database.rules.json), así que sin esto cualquiera que supiera/
-// adivinara un código habría podido hacer que se le mandaran correos ilimitados a un
-// desconocido (hallazgo real de la revisión de arquitectura de este plan, no una ocurrencia
-// tardía) — el flujo de reenvío en index.html ya pedía el correo escrito por esta misma razón;
-// este endpoint mantiene esa barrera para AMBOS casos de uso, no solo el reenvío.
-async function sendReservationConfirmation({ code, email, lang }) {
+// Verificación compartida por CUALQUIER endpoint público de correo (confirmación de reserva,
+// pago reportado): código + correo tienen que coincidir con el registro real ANTES de mandar
+// nada — los códigos son de lectura pública por diseño (database.rules.json), así que sin esto
+// cualquiera que supiera/adivinara un código habría podido hacer que se le mandaran correos
+// ilimitados a un desconocido (hallazgo real de la revisión de arquitectura de este plan, no
+// una ocurrencia tardía). Un solo lugar — antes esto vivía solo dentro de
+// sendReservationConfirmation, duplicarlo para el nuevo correo de "pago reportado" habría sido
+// repetir la misma lógica de seguridad dos veces.
+async function resolveVerifiedReservationEmail(code, email, lang) {
   const language = lang === 'en' ? 'en' : 'es';
   const upperCode = String(code || '').trim().toUpperCase();
   const trimmedEmail = String(email || '').trim();
@@ -317,6 +313,11 @@ async function sendReservationConfirmation({ code, email, lang }) {
   if (!rec.email || String(rec.email).trim().toLowerCase() !== trimmedEmail.toLowerCase()) {
     const e = new Error('email-mismatch'); e.code = 'forbidden'; throw e;
   }
+  return { rec, language };
+}
+
+async function sendReservationConfirmation({ code, email, lang }) {
+  const { rec, language } = await resolveVerifiedReservationEmail(code, email, lang);
 
   const categories = await fb.getCategories();
   const category = categories[rec.unitType];
@@ -334,7 +335,23 @@ async function sendReservationConfirmation({ code, email, lang }) {
   return { sent: true, messageId: info.messageId };
 }
 
+// Disparado por el propio cliente justo después de reportar un pago (index.html,
+// mountPaymentSection) — mismo motivo de verificación código+correo que
+// sendReservationConfirmation, ver resolveVerifiedReservationEmail arriba. Reusa
+// sendStatusUpdate (mismo look que pago verificado/rechazado) en vez de mandar el correo a mano
+// acá: best-effort real (nunca tumba nada si el SMTP falla), y el pago ya quedó guardado en
+// Firebase antes de que esto se llame — este correo es solo un aviso, no la fuente de verdad.
+async function sendPaymentReported({ code, email, lang }) {
+  const { rec, language } = await resolveVerifiedReservationEmail(code, email, lang);
+  return sendStatusUpdate(rec, {
+    subjectEs: `Pago reportado — reserva ${rec.code}`, subjectEn: `Payment reported — booking ${rec.code}`,
+    titleEs: 'Pago reportado', titleEn: 'Payment reported',
+    bodyEs: 'Recibimos tu reporte de pago. Nuestro equipo lo verificará y te avisaremos apenas quede confirmado — normalmente toma poco tiempo.',
+    bodyEn: "We've received your payment report. Our team will verify it and let you know as soon as it's confirmed — this usually takes a short while.",
+  }, language);
+}
+
 module.exports = {
   sendReservationConfirmation, reservationCreatedHtml, reservationDisplayStatus, isConfigured,
-  sendPaymentVerified, sendPaymentRejected, sendReservationCancelled,
+  sendPaymentVerified, sendPaymentRejected, sendReservationCancelled, sendPaymentReported,
 };

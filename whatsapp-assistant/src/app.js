@@ -171,6 +171,22 @@ app.post('/email/reservation-confirmation', allowSiteOrigin, async (req, res) =>
   }
 });
 
+// Correo de "pago reportado" — llamado por index.html justo después de que reportPayment()
+// guarda el pago en Firebase (mountPaymentSection), mismo patrón fire-and-forget que el correo
+// de confirmación de arriba: nunca bloquea la respuesta de éxito que ya ve el cliente.
+app.options('/email/payment-reported', allowSiteOrigin);
+app.post('/email/payment-reported', allowSiteOrigin, async (req, res) => {
+  try {
+    const { code, email, lang } = req.body || {};
+    const result = await emailService.sendPaymentReported({ code, email, lang });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = EMAIL_ERROR_STATUS[err.code] || 500;
+    if (status === 500) console.error('[app] Error enviando correo de pago reportado:', err);
+    res.status(status).json({ error: err.code || 'unknown-error' });
+  }
+});
+
 // Conteo de tráfico del sitio público (sección "público visitado" del panel de analíticas) —
 // público y sin requireAdminAuth a propósito, igual que /chat/web/message: el navegador de un
 // visitante nunca tiene ni puede tener un token de admin. Guarda SOLO un contador agregado por

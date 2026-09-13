@@ -579,6 +579,16 @@
   .lookup-result{margin-top:28px;max-width:520px;}
   .lookup-empty{margin-top:20px;font-size:14px;opacity:0.7;background:var(--paper-2);padding:14px 18px;border-radius:12px;max-width:520px;}
   .status-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px;background:rgba(143,106,30,0.16);color:var(--ochre);}
+  /* Seguimiento de reserva (sección 48 del pedido) — checklist de progreso en "Mi reserva". */
+  .track-list{display:flex;flex-direction:column;gap:11px;margin-bottom:20px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--paper-2);}
+  .track-step{display:flex;align-items:center;gap:11px;font-size:13.5px;font-weight:600;color:var(--ink);opacity:0.45;}
+  .track-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex:none;background:var(--card);color:var(--ink);border:1.5px solid var(--line);}
+  .track-step.track-done, .track-step.track-current, .track-step.track-error{opacity:1;}
+  .track-step.track-done .track-icon{background:var(--success);border-color:var(--success);color:#fff;}
+  .track-step.track-current{color:var(--clay);}
+  .track-step.track-current .track-icon{background:var(--clay);border-color:var(--clay);color:#fff;}
+  .track-step.track-error{color:#c0392b;}
+  .track-step.track-error .track-icon{background:#c0392b;border-color:#c0392b;color:#fff;}
   .status-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
   .recent-list{margin-top:34px;max-width:520px;}
   .recent-list h4{font-size:13px;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;margin-bottom:12px;}
@@ -1020,6 +1030,16 @@
     prSubmitError:{es:"No pudimos registrar tu reporte de pago. Verifica tu conexión e inténtalo de nuevo.",en:"We couldn't record your payment report. Check your connection and try again."},
     prValidationError:{es:"Completa fecha, monto, banco y referencia para continuar.",en:"Fill in date, amount, bank and reference to continue."},
     prProofLinkLabel:{es:"Ver comprobante",en:"View proof"},
+    trackCreated:{es:"Reserva creada",en:"Booking created"},
+    trackPaymentPending:{es:"Esperando reporte de pago",en:"Waiting for payment report"},
+    trackPaymentReported:{es:"Pago reportado",en:"Payment reported"},
+    trackVerification:{es:"Pago en verificación",en:"Payment under review"},
+    trackVerified:{es:"Pago verificado",en:"Payment verified"},
+    trackPaymentRejected:{es:"Pago rechazado — escríbenos por WhatsApp",en:"Payment rejected — message us on WhatsApp"},
+    trackConfirmed:{es:"Reserva confirmada",en:"Booking confirmed"},
+    trackRejectedReservation:{es:"Reserva rechazada",en:"Booking rejected"},
+    trackCancelled:{es:"Reserva cancelada",en:"Booking cancelled"},
+    trackExpired:{es:"Reserva expirada — el tiempo para pagar se agotó",en:"Booking expired — the payment window closed"},
     miReservaSectionDetails:{es:"Detalles",en:"Details"},
     miReservaSectionContact:{es:"Tus datos",en:"Your details"},
     miReservaWaReserva:{es:"Continuar por WhatsApp",en:"Continue on WhatsApp"},
@@ -1843,13 +1863,13 @@ var HERO_IMG = "media/hero.jpg";
   // antes no hacía falta.
   var EmailProvider = {
     isConfigured: function(){ return true; }, // el backend siempre existe; puede fallar con 'not-configured' si falta GMAIL_APP_PASSWORD ahí, ver emailService.js
-    send: function(templateParams){
+    send: function(templateParams, endpoint){
       var payload = {
         code: templateParams.reservation_code,
         email: templateParams.to_email,
         lang: LANG
       };
-      return fetch(BACKEND_BASE_URL + '/email/reservation-confirmation', {
+      return fetch(BACKEND_BASE_URL + (endpoint || '/email/reservation-confirmation'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1873,7 +1893,14 @@ var HERO_IMG = "media/hero.jpg";
       if(!res || res.type !== 'reserva' || !res.email) return Promise.resolve({skipped:true});
       return EmailProvider.send({ to_email: res.email, reservation_code: res.code });
     }
-    return { sendReservationCreated: sendReservationCreated };
+    // Mismo criterio: el pago ya quedó guardado en Firebase antes de llamar esto (ver
+    // mountPaymentSection) — este correo es solo un aviso de "lo recibimos", nunca la fuente
+    // de verdad de que el reporte existe.
+    function sendPaymentReported(res){
+      if(!res || res.type !== 'reserva' || !res.email) return Promise.resolve({skipped:true});
+      return EmailProvider.send({ to_email: res.email, reservation_code: res.code }, '/email/payment-reported');
+    }
+    return { sendReservationCreated: sendReservationCreated, sendPaymentReported: sendPaymentReported };
   })();
 
   /* ---------------- Tarjeta de reserva (imagen descargable) ----------------
@@ -3584,6 +3611,12 @@ var HERO_IMG = "media/hero.jpg";
           ReservationService.reportPayment(res.code, report).then(function(){
             res.paymentStatus = 'submitted';
             res.paymentReport = report;
+            // Fire-and-forget, igual que sendReservationEmail() tras crear la reserva — el
+            // pago ya quedó guardado en Firebase arriba; este correo es solo un aviso y nunca
+            // debe demorar ni condicionar lo que el cliente ve a continuación.
+            EmailService.sendPaymentReported(res).catch(function(err){
+              console.warn('[Email] No se pudo enviar el aviso de pago reportado ('+res.code+'):', err && err.code || err);
+            });
             onUpdate();
           }).catch(function(err){
             console.error('No se pudo reportar el pago:', err);
@@ -3595,6 +3628,44 @@ var HERO_IMG = "media/hero.jpg";
         });
       });
     });
+  }
+
+  // Seguimiento visual de la reserva (sección 48 del pedido) — un checklist de progreso en vez
+  // de un solo texto de estado crudo. Nunca revela nada administrativo (quién verificó, cuándo
+  // exactamente) — solo la secuencia que el propio cliente ya puede inferir de su estado
+  // público. Los estados terminales (rechazada/cancelada/expirada/pago rechazado) cortan la
+  // secuencia en vez de fingir que el resto sigue "pendiente".
+  function reservationTrackerSteps(res){
+    var steps = [{ label: t('trackCreated'), state: 'done' }];
+    if(res.status === 'rechazada'){ steps.push({ label: t('trackRejectedReservation'), state: 'error' }); return steps; }
+    if(res.status === 'cancelada'){ steps.push({ label: t('trackCancelled'), state: 'error' }); return steps; }
+    if(BOOKING.isHoldExpired(res)){ steps.push({ label: t('trackExpired'), state: 'error' }); return steps; }
+    var ps = res.paymentStatus;
+    var confirmedDone = res.status === 'confirmada' || res.status === 'completada';
+    if(!ps || ps === 'none'){
+      steps.push({ label: t('trackPaymentPending'), state: 'current' });
+      steps.push({ label: t('trackVerification'), state: 'pending' });
+      steps.push({ label: t('trackConfirmed'), state: 'pending' });
+    } else if(ps === 'submitted'){
+      steps.push({ label: t('trackPaymentReported'), state: 'done' });
+      steps.push({ label: t('trackVerification'), state: 'current' });
+      steps.push({ label: t('trackConfirmed'), state: 'pending' });
+    } else if(ps === 'rejected'){
+      steps.push({ label: t('trackPaymentReported'), state: 'done' });
+      steps.push({ label: t('trackPaymentRejected'), state: 'error' });
+    } else if(ps === 'verified'){
+      steps.push({ label: t('trackPaymentReported'), state: 'done' });
+      steps.push({ label: t('trackVerified'), state: 'done' });
+      steps.push({ label: t('trackConfirmed'), state: confirmedDone ? 'done' : 'current' });
+    }
+    return steps;
+  }
+  function reservationTrackerHtml(res){
+    if(res.type !== 'reserva') return '';
+    var icons = { done:'✓', error:'✕', current:'●', pending:'○' };
+    return '<div class="track-list">' + reservationTrackerSteps(res).map(function(s){
+      return '<div class="track-step track-'+s.state+'"><span class="track-icon">'+icons[s.state]+'</span><span class="track-label">'+BOOKING.escHtml(s.label)+'</span></div>';
+    }).join('') + '</div>';
   }
 
   function renderReservationSummary(res){
@@ -3621,6 +3692,7 @@ var HERO_IMG = "media/hero.jpg";
       +   '<span class="type-tag type-'+(isVisit?'cita':'reserva')+'">'+(isVisit?t('typeTagCita'):t('typeTagReserva'))+'</span>'
       +   '<span class="status-pill"><span class="dot"></span>'+statusLabel+'</span>'
       + '</div>'
+      + reservationTrackerHtml(res)
       + (showCountdown ? '<div class="hold-card" style="margin-bottom:18px;"><span class="hc-label">'+t('holdTitle')+'</span><div class="hc-timer-label">'+t('holdTimeLeft')+'</div><div class="hc-timer" id="miReservaTimer" data-expires="'+res.expiresAt+'">--:--</div><p class="hc-note">'+t('holdNote')+'</p></div>' : '')
       + '<div id="miReservaPaymentSection"></div>'
       + '<p class="review-section-label">'+t('miReservaSectionDetails')+'</p>'
