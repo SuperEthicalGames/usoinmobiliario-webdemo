@@ -48,8 +48,19 @@ async function generateUniqueCode() {
 // desde siempre (son también los nombres de los campos ya guardados en Firebase) y esta
 // migración lo reusa tal cual, sin tocar ese contrato existente — normalizar acá, en el único
 // lugar compartido, es más simple que forzar a un caller a cambiar cómo ya nombra sus campos.
+// Hallazgo real de un pase de autoataque contra producción: un `unitType`/`typeKey` que NO es
+// string (ej. `{"$ne": null}`, un intento de inyección estilo NoSQL) llegaba tal cual hasta
+// fb.getApartment(), que lo interpola en un path de Firebase (`apartments/${typeKey}_${num}`) —
+// el Admin SDK rechaza esa ruta por caracteres inválidos y tira una excepción sin capturar, un
+// 500 en vez de un 400 de validación limpio. Nunca fue una escalación real (asyncHandler no
+// filtra nada sensible en la respuesta), pero sí una entrada no validada llegando a un SDK de
+// más bajo nivel — exactamente el tipo de cosa que un fuzzing más insistente podría explotar de
+// otra forma. Solo aceptar strings acá hace que ese valor "desaparezca" (num queda undefined) y
+// el chequeo de campos faltantes, que ya existe, lo atrape con un 400 normal.
 function resolveUnitArgs({ typeKey, num, unitType, unitNum }) {
-  return { typeKey: typeKey || unitType, num: num || unitNum };
+  const resolvedTypeKey = typeof typeKey === 'string' ? typeKey : (typeof unitType === 'string' ? unitType : undefined);
+  const resolvedNum = typeof num === 'string' ? num : (typeof unitNum === 'string' ? unitNum : undefined);
+  return { typeKey: resolvedTypeKey, num: resolvedNum };
 }
 
 // Devuelve el registro completo, listo para fb.createReservation(rec) — NO escribe nada.

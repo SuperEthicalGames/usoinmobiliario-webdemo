@@ -104,6 +104,38 @@ test('buildReservationRecord: acepta unitType/unitNum (convención del sitio pú
   assert.equal(rec.unitType, 'estudio');
 });
 
+// Hallazgo real de un pase de autoataque contra producción: unitType/typeKey no-string (ej. un
+// intento de inyección estilo NoSQL, {"$ne":null}) llegaba tal cual hasta fb.getApartment(), que
+// lo interpola en un path de Firebase — el Admin SDK rechaza el path por caracteres inválidos y
+// tira una excepción sin capturar (500 en vez de 400). Con un `num` válido en el mismo request,
+// esto NO debe rechazarse por "apartamento faltante" (findApartmentByNum ya resuelve solo por
+// número, a propósito — ver el comentario de esa función en firebase.js) — lo que debe cambiar
+// es que fb.getApartment nunca reciba el valor no-string, solo `undefined`.
+test('buildReservationRecord: unitType no-string nunca llega a Firebase como tal (se vuelve undefined)', async () => {
+  const getApartment = mock.method(fb, 'getApartment', async (typeKey, num) => {
+    assert.equal(typeKey, undefined);
+    assert.equal(num, '09');
+    return APT;
+  });
+  mock.method(fb, 'checkAvailability', async () => ({ available: true, reason: null }));
+  mock.method(fb, 'generateCode', () => 'SAFE01');
+  mock.method(fb, 'getReservationByCode', async () => null);
+  const rec = await buildReservationRecord({ ...VALID_ARGS, typeKey: undefined, unitType: { $ne: null }, unitNum: '09' });
+  assert.equal(rec.code, 'SAFE01');
+  assert.equal(getApartment.mock.calls.length, 1);
+});
+
+// Cuando NI num/unitNum es un string usable, sí debe caer en "apartamento faltante" — el caso
+// donde ambos campos vienen corrompidos.
+test('buildReservationRecord: unitType Y unitNum no-string -> invalid (apartamento), nunca llega a Firebase', async () => {
+  const getApartment = mock.method(fb, 'getApartment', async () => { throw new Error('no debería llamarse'); });
+  await assert.rejects(
+    () => buildReservationRecord({ ...VALID_ARGS, typeKey: undefined, num: undefined, unitType: { $ne: null }, unitNum: { $ne: null } }),
+    (err) => err.code === 'invalid' && err.missingFields.includes('apartamento'),
+  );
+  assert.equal(getApartment.mock.calls.length, 0);
+});
+
 test('buildReservationRecord: colisión de código real reintenta con uno nuevo', async () => {
   mock.method(fb, 'getApartment', async () => APT);
   mock.method(fb, 'checkAvailability', async () => ({ available: true, reason: null }));
