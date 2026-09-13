@@ -49,8 +49,19 @@ app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 // final porque así arma los links a cada apartamento, pero comparar contra eso literal habría
 // hecho que un navegador real rechazara esta respuesta por no calzar con su Origin real).
 const SITE_ORIGIN = new URL(config.siteBaseUrl).origin;
+const LOCALHOST_ORIGIN = /^http:\/\/localhost:\d+$/;
+// Además de SITE_ORIGIN (producción), acepta cualquier http://localhost:<puerto> — mismo
+// criterio ya usado por allowAdminOrigin (abajo) para exactamente el mismo problema: probar el
+// sitio público en local (`python -m http.server`, o cualquier dev server) contra el backend
+// real no tenía forma de funcionar, cada escritura fallaba con el preflight rechazado (bug real
+// encontrado en vivo probando el flujo completo de reservas/pagos). Esto NO relaja ningún
+// control de acceso real — estas rutas ya eran alcanzables por cualquier script/curl sin pasar
+// por un navegador ni por CORS (ver comentario de allowAdminOrigin); CORS solo decide qué
+// respuesta puede LEER un navegador, nunca la única barrera.
 function allowSiteOrigin(req, res, next) {
-  res.setHeader('Access-Control-Allow-Origin', SITE_ORIGIN);
+  const origin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', LOCALHOST_ORIGIN.test(origin || '') ? origin : SITE_ORIGIN);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   // Idempotency-Key: nuevo, para /reservations y /visits (ver plan de migración de reservas) —
   // sin sumarlo acá, un navegador real bloquea el preflight de cualquier request que la incluya.
@@ -70,7 +81,6 @@ function allowSiteOrigin(req, res, next) {
 // control de acceso real: requireAdminAuth (abajo, antes de adminRoutes) sigue exigiendo un
 // token válido de Firebase sin importar el origen — CORS es solo qué respuestas puede LEER un
 // navegador, nunca la única barrera (mismo criterio ya documentado arriba para allowSiteOrigin).
-const LOCALHOST_ORIGIN = /^http:\/\/localhost:\d+$/;
 function allowAdminOrigin(req, res, next) {
   const origin = req.headers.origin;
   res.setHeader('Access-Control-Allow-Origin', LOCALHOST_ORIGIN.test(origin || '') ? origin : config.adminOrigin);
