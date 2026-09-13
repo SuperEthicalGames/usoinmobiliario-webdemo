@@ -27,11 +27,17 @@ function apartmentUrl(typeKey, num) {
   return `${config.siteBaseUrl}/#/unidad/${typeKey}?u=${num}`;
 }
 
-// Mismo criterio que AvailabilityService.IsUnitBookable en Unity: el campo crudo `status` es
-// el control manual del admin (mantenimiento/remodelación) — si no está 'disponible', ni
-// reservas ni visitas específicas deberían ofrecerse para esa unidad, sin importar fechas.
-function isUnitBookable(apartment) {
-  return !!apartment && apartment.status === 'disponible';
+// Sección 12 de la evolución del pedido (2026-09-13): "en uso"/"reservado" ya NO bloquea la
+// solicitud — ese status es el operativo de HOY, no dice nada de si una fecha FUTURA puntual
+// está libre. Mismo fix ya aplicado en index.html (AvailabilityService.isUnitBookable) — antes
+// de este cambio, el bot de WhatsApp/chat era MÁS restrictivo que el sitio web para la misma
+// unidad, exactamente la inconsistencia que la sección 49 del pedido pide evitar ("no quiero
+// web con lógica diferente, middleware/bot con lógica diferente"). La única protección real
+// contra doble-reserva sigue siendo fb.checkAvailability() por rango de fechas exacto, sin
+// cambios — se conserva la función (no solo `true` en cada call site) para no perder el nombre
+// semántico ni el punto único de control.
+function isUnitBookable(_apartment) {
+  return true;
 }
 
 async function searchApartments({ guests, checkin, checkout, typeKey } = {}) {

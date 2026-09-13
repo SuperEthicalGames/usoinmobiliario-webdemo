@@ -1,6 +1,7 @@
 <meta charset="utf-8">
 <title>Uso Inmobiliario — Catálogo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/webp" href="media/brand/logo-icon.webp">
 <!-- GitHub Pages sirve archivos estáticos sin poder configurar headers HTTP reales, así que
      CSP/Referrer-Policy van acá por <meta> — es lo único que un sitio 100% estático puede
      controlar por su cuenta. X-Frame-Options/HSTS/X-Content-Type-Options SÍ requieren un
@@ -17,59 +18,72 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,340;0,9..144,460;0,9..144,560;1,9..144,460&family=Karla:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
 <style>
+  /* Identidad visual (2026-09-13) — derivada del logo real (media/brand/logo-*.webp: casa en
+     plata/cromo + techo dorado + acento verde en el ®), mismo criterio de paleta que ya usa
+     usoinmobiliario-middleware (graphite+gold) para que ambas propiedades se sientan de la
+     misma marca (sección 49 del pedido). Tres acentos con roles fijos, nunca intercambiables:
+     --forest = grafito (estructura/acción primaria — antes era el verde bosque original, se
+     conserva el NOMBRE de la variable para no reescribir cientos de var(--forest) en todo el
+     archivo, solo cambia el valor); --clay = dorado (texto/valor — precios, cifras, acentos,
+     antes terracota); --success = verde (ÚNICA señal de disponible/válido/enviado — convención
+     universal de UX que no se sacrifica por pureza de marca, nueva variable). En modo oscuro
+     --forest pasa a dorado (sobre fondo oscuro un grafito oscuro se perdería) — mismo criterio
+     que ya usaba el diseño anterior (su verde también se aclaraba en oscuro), ahora con dorado. */
   :root{
-    --ink:#20241f; --paper:#f5f0e6; --paper-2:#efe7d8;
-    --forest:#33513f; --forest-dk:#22362a; --clay:#b6603c;
-    --sand:#e4d8c3; --ochre:#9c7b3f; --line: rgba(32,36,31,0.14);
-    --card: #faf6ec; --shadow: 0 18px 40px -22px rgba(32,36,31,0.35);
+    --ink:#1a1d21; --paper:#f7f5f1; --paper-2:#eeebe3;
+    --forest:#23262b; --forest-dk:#34383f; --clay:#a5761c;
+    --sand:#f0e4c8; --ochre:#8f6a1e; --success:#1e7a44; --line: rgba(26,29,33,0.14);
+    --card: #ffffff; --shadow: 0 18px 40px -22px rgba(26,29,33,0.35);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --ink:#eee9db; --paper:#181c17; --paper-2:#1f251d;
-      --forest:#7fa88d; --forest-dk:#a6c7b1; --clay:#d98a63;
-      --sand:#2a2c22; --ochre:#cbab6c; --line: rgba(238,233,219,0.16);
-      --card:#20241d; --shadow: 0 18px 40px -20px rgba(0,0,0,0.6);
+      --ink:#f0ede6; --paper:#15171a; --paper-2:#1b1e22;
+      --forest:#d1a13f; --forest-dk:#e6c165; --clay:#e2b354;
+      --sand:#26221a; --ochre:#d1a13f; --success:#4caf6e; --line: rgba(240,237,230,0.16);
+      --card:#262a30; --shadow: 0 18px 40px -20px rgba(0,0,0,0.6);
     }
   }
   :root[data-theme="dark"]{
-    --ink:#eee9db; --paper:#181c17; --paper-2:#1f251d;
-    --forest:#7fa88d; --forest-dk:#a6c7b1; --clay:#d98a63;
-    --sand:#2a2c22; --ochre:#cbab6c; --line: rgba(238,233,219,0.16);
-    --card:#20241d; --shadow: 0 18px 40px -20px rgba(0,0,0,0.6);
+    --ink:#f0ede6; --paper:#15171a; --paper-2:#1b1e22;
+    --forest:#d1a13f; --forest-dk:#e6c165; --clay:#e2b354;
+    --sand:#26221a; --ochre:#d1a13f; --success:#4caf6e; --line: rgba(240,237,230,0.16);
+    --card:#262a30; --shadow: 0 18px 40px -20px rgba(0,0,0,0.6);
   }
 
   *{box-sizing:border-box;}
   html{background:var(--paper);}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Karla',ui-sans-serif,system-ui,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;}
-  h1,h2,h3,.display{font-family:'Fraunces',ui-serif,Georgia,serif;font-weight:560;letter-spacing:-0.01em;text-wrap:balance;margin:0;color:var(--ink);}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',ui-sans-serif,system-ui,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.display{font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;font-weight:700;letter-spacing:-0.01em;text-wrap:balance;margin:0;color:var(--ink);}
   a{color:inherit;}
   img{max-width:100%;display:block;}
   .wrap{max-width:1180px;margin:0 auto;padding-inline:28px;}
   .eyebrow{font-size:12.5px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--clay);display:flex;align-items:center;gap:10px;}
   .eyebrow::before{content:"";width:22px;height:1.5px;background:var(--clay);display:inline-block;}
-  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:999px;font-weight:700;font-size:14.5px;text-decoration:none;border:1.5px solid transparent;cursor:pointer;transition:transform .15s ease, background .2s ease, color .2s ease, border-color .2s ease;white-space:nowrap;font-family:inherit;}
-  .btn:active{transform:scale(0.97);}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:999px;font-weight:700;font-size:14.5px;text-decoration:none;border:1.5px solid transparent;cursor:pointer;transition:transform .32s cubic-bezier(.34,1.56,.64,1), background .2s ease, color .2s ease, border-color .2s ease, box-shadow .3s ease;white-space:nowrap;font-family:inherit;}
+  .btn:active{transform:scale(0.95) translateY(0) !important;transition-duration:.08s;}
   .btn:disabled{opacity:0.4;cursor:not-allowed;pointer-events:none;}
-  .btn-primary{background:var(--forest);color:#f5f0e6;}
+  .btn-primary{background:var(--forest);color:#f5f0e6;box-shadow:0 1px 2px rgba(0,0,0,0.08);}
   :root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary{color:#12140f;}
   :root[data-theme="light"] .btn-primary{color:#f5f0e6;}
-  .btn-primary:hover{background:var(--forest-dk);}
+  .btn-primary:hover{background:var(--forest-dk);transform:translateY(-3px) scale(1.035);box-shadow:0 14px 26px -10px rgba(0,0,0,0.4);}
   .btn-ghost{border-color:var(--line);color:var(--ink);background:transparent;}
-  .btn-ghost:hover{border-color:var(--clay);color:var(--clay);}
+  .btn-ghost:hover{border-color:var(--clay);color:var(--clay);transform:translateY(-3px) scale(1.035);}
   .btn-sm{padding:9px 16px;font-size:13px;}
-  .btn-icon{padding:10px;line-height:0;}
+  .btn-icon{padding:10px;line-height:0;justify-content:center;}
   .btn-icon svg{width:20px;height:20px;display:block;}
   .btn:focus-visible, button:focus-visible, a:focus-visible{outline:2px solid var(--clay);outline-offset:3px;}
 
   .topbar{position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--paper) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
   .topbar-inner{max-width:1180px;margin:0 auto;padding:16px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px;}
   .topbar-left{display:flex;align-items:center;gap:14px;}
-  .logo{font-family:'Fraunces',serif;font-weight:560;font-size:21px;letter-spacing:-0.01em;display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--ink);}
+  .logo{font-family:'Manrope',sans-serif;font-weight:700;font-size:21px;letter-spacing:-0.01em;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);}
   .logo em{font-style:normal;color:var(--clay);}
+  .logo-mark{height:34px;width:34px;object-fit:contain;flex:none;}
+  .site-footer .logo-mark{height:40px;width:40px;}
   .nav-links{display:flex;gap:26px;font-size:14.5px;font-weight:600;list-style:none;margin:0;padding:0;}
   .nav-links a{text-decoration:none;opacity:0.82;border-bottom:2px solid transparent;padding-bottom:3px;}
   .nav-links a:hover, .nav-links a.is-active{opacity:1;border-color:var(--clay);}
@@ -107,13 +121,11 @@
   .hero-grid{display:grid;grid-template-columns:1.05fr 0.95fr;gap:56px;align-items:center;}
   @media (max-width:920px){ .hero-grid{grid-template-columns:1fr;gap:36px;} .hero{padding:32px 0 40px;} }
   .hero h1{font-size:clamp(2.3rem, 4.4vw, 3.5rem);line-height:1.04;margin:16px 0 20px;}
-  .hero h1 i{font-style:italic;color:var(--forest);}
-  :root:not([data-theme="light"]) .hero h1 i{color:var(--forest-dk);}
+  .hero h1 i{font-style:normal;color:var(--clay);}
   .hero p.lead{font-size:17.5px;max-width:46ch;opacity:0.85;margin-bottom:28px;}
   .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:34px;}
   .stat-row{display:flex;gap:34px;flex-wrap:wrap;}
-  .stat b{font-family:'Fraunces',serif;font-size:26px;display:block;color:var(--forest);font-weight:560;}
-  :root[data-theme="dark"] .stat b, :root:not([data-theme="light"]) .stat b{color:var(--forest-dk);}
+  .stat b{font-family:'Manrope',sans-serif;font-size:26px;display:block;color:var(--clay);font-weight:800;}
   .stat span{font-size:12.5px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.65;font-weight:700;}
   .hero-media{position:relative;border-radius:22px;overflow:hidden;box-shadow:var(--shadow);aspect-ratio:4/5;background:#1c231d;}
   .hero-media img{width:100%;height:100%;object-fit:cover;}
@@ -121,7 +133,7 @@
   .hero-pano.dragging{cursor:grabbing;}
   .hero-pano canvas{display:block;width:100% !important;height:100% !important;}
   .hero-media::after{content:"";position:absolute;inset:0;background:linear-gradient(200deg, rgba(32,36,31,0) 40%, rgba(32,36,31,0.55) 100%);pointer-events:none;}
-  .hero-badge{position:absolute;left:18px;bottom:18px;z-index:2;background:rgba(245,240,230,0.94);color:#20241f;padding:11px 16px;border-radius:14px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:9px;box-shadow:0 8px 20px -8px rgba(0,0,0,0.4);}
+  .hero-badge{position:absolute;left:18px;bottom:18px;z-index:2;background:rgba(247,245,241,0.94);color:#1a1d21;padding:11px 16px;border-radius:14px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:9px;box-shadow:0 8px 20px -8px rgba(0,0,0,0.4);}
   .hero-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--clay);flex:none;}
 
   .features{padding:8px 0 60px;}
@@ -129,7 +141,7 @@
   @media (max-width:1024px){ .feature-grid{grid-template-columns:1fr 1fr;} .feature-grid .feature:last-child{grid-column:1/-1;} }
   @media (max-width:640px){ .feature-grid{grid-template-columns:1fr;} .feature-grid .feature:last-child{grid-column:auto;} }
   .feature{background:var(--card);padding:30px 28px;}
-  .feature .num{font-family:'Fraunces',serif;font-size:14px;color:var(--clay);font-weight:600;display:block;margin-bottom:14px;}
+  .feature .num{font-family:'Manrope',sans-serif;font-size:14px;color:var(--clay);font-weight:600;display:block;margin-bottom:14px;}
   .feature h3{font-size:19px;margin-bottom:8px;}
   .feature p{margin:0;font-size:14.5px;opacity:0.78;}
 
@@ -149,8 +161,7 @@
   .type-summary{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
   .type-summary h3{font-size:22px;}
   .type-summary .type-blurb{font-size:14.5px;opacity:0.72;max-width:56ch;}
-  .type-summary .type-price{font-family:'Fraunces',serif;font-weight:560;font-size:19px;color:var(--forest);white-space:nowrap;}
-  :root[data-theme="dark"] .type-summary .type-price, :root:not([data-theme="light"]) .type-summary .type-price{color:var(--forest-dk);}
+  .type-summary .type-price{font-family:'Manrope',sans-serif;font-weight:700;font-size:19px;color:var(--clay);white-space:nowrap;}
 
   /* status legend — ahora son filtros clicables, no solo texto */
   .status-legend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--card);}
@@ -165,27 +176,27 @@
   .unit-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
   @media (max-width:1024px){ .unit-grid{grid-template-columns:1fr 1fr;} }
   @media (max-width:640px){ .unit-grid{grid-template-columns:1fr;} }
-  .ua-card{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);text-decoration:none;display:flex;flex-direction:column;transition:transform .15s ease;position:relative;}
-  .ua-card:hover{transform:translateY(-3px);}
+  .ua-card{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);text-decoration:none;display:flex;flex-direction:column;transition:transform .32s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease;position:relative;}
+  .ua-card:hover{transform:translateY(-5px) scale(1.015);box-shadow:0 22px 40px -18px rgba(0,0,0,0.4);}
   .ua-card.st-en-uso{opacity:0.7;}
   .ua-card.st-reservado{opacity:1;}
   .ua-code .star{color:var(--ochre);margin-right:3px;}
   .ua-thumb{aspect-ratio:16/10;position:relative;overflow:hidden;background:var(--sand);}
-  .ua-thumb img{width:100%;height:100%;object-fit:cover;}
+  .ua-thumb img{width:100%;height:100%;object-fit:cover;transition:transform .4s cubic-bezier(.22,.9,.32,1);}
+  .ua-card:hover .ua-thumb img{transform:scale(1.06);}
   .ua-badge{position:absolute;left:12px;top:12px;font-size:11px;font-weight:700;letter-spacing:0.03em;padding:6px 11px;border-radius:999px;display:flex;align-items:center;gap:6px;}
   .ua-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;}
-  .ua-badge.st-disponible{background:rgba(51,81,63,0.92);color:#eef4ee;}
-  .ua-badge.st-en-uso{background:rgba(156,123,63,0.94);color:#fff8ea;}
+  .ua-badge.st-disponible{background:rgba(30,122,68,0.92);color:#eef8f0;}
+  .ua-badge.st-en-uso{background:rgba(143,106,30,0.94);color:#fff8ea;}
   .ua-badge.st-reservado{background:rgba(24,28,23,0.62);color:#f0ece2;}
-  .ua-360{position:absolute;right:12px;top:12px;background:rgba(182,96,60,0.92);color:#f8f2ea;font-size:10px;font-weight:700;padding:6px 10px;border-radius:999px;letter-spacing:0.03em;}
+  .ua-360{position:absolute;right:12px;top:12px;background:rgba(165,118,28,0.92);color:#f8f2ea;font-size:10px;font-weight:700;padding:6px 10px;border-radius:999px;letter-spacing:0.03em;}
   .ua-body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1;}
   .ua-top{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums;}
   .ua-code{font-weight:700;font-size:15px;}
   .ua-area{font-size:12.5px;opacity:0.6;font-weight:600;}
   .ua-feature{font-size:12px;opacity:0.65;margin:0;}
-  .ua-price{font-family:'Fraunces',serif;font-weight:560;font-size:19px;color:var(--forest);margin:2px 0 0;}
-  :root[data-theme="dark"] .ua-price, :root:not([data-theme="light"]) .ua-price{color:var(--forest-dk);}
-  .ua-price small{font-family:'Karla',sans-serif;font-size:11px;font-weight:700;opacity:0.55;text-transform:uppercase;letter-spacing:0.04em;}
+  .ua-price{font-family:'Manrope',sans-serif;font-weight:700;font-size:19px;color:var(--clay);margin:2px 0 0;}
+  .ua-price small{font-family:'Inter',sans-serif;font-size:11px;font-weight:700;opacity:0.55;text-transform:uppercase;letter-spacing:0.04em;}
   .ua-cta{margin:auto 0 0;font-size:12.5px;font-weight:700;color:var(--clay);display:flex;align-items:center;gap:5px;}
   .catalog-note{font-size:12.5px;opacity:0.55;margin-top:20px;}
 
@@ -196,24 +207,21 @@
   table.rates-table th:first-child, table.rates-table td:first-child{text-align:left;font-weight:700;}
   table.rates-table thead th{background:var(--paper-2);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;font-weight:700;opacity:0.7;}
   table.rates-table tbody tr:last-child td{border-bottom:none;}
-  table.rates-table td.hl{font-weight:700;color:var(--forest);}
-  :root[data-theme="dark"] table.rates-table td.hl, :root:not([data-theme="light"]) table.rates-table td.hl{color:var(--forest-dk);}
+  table.rates-table td.hl{font-weight:700;color:var(--clay);}
   .spec-mini{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;}
   .spec-chip{background:var(--paper-2);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:600;}
   .unit-status-badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:7px 13px;border-radius:999px;margin-bottom:10px;}
   .unit-status-badge .dot{width:8px;height:8px;border-radius:50%;background:currentColor;}
-  .unit-status-badge.st-disponible{background:rgba(51,81,63,0.14);color:var(--forest);}
-  .unit-status-badge.st-en-uso{background:rgba(156,123,63,0.16);color:var(--ochre);}
+  .unit-status-badge.st-disponible{background:rgba(30,122,68,0.14);color:var(--success);}
+  .unit-status-badge.st-en-uso{background:rgba(143,106,30,0.16);color:var(--ochre);}
   .unit-status-badge.st-reservado{background:rgba(24,28,23,0.1);color:var(--ink);opacity:0.8;}
-  :root[data-theme="dark"] .unit-status-badge.st-disponible, :root:not([data-theme="light"]) .unit-status-badge.st-disponible{color:var(--forest-dk);}
 
   .location{padding:60px 0;border-top:1px solid var(--line);background:var(--paper-2);}
   .loc-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;}
   @media (max-width:860px){ .loc-grid{grid-template-columns:1fr;} }
   .loc-list{list-style:none;margin:22px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;}
   .loc-list li{font-size:14.5px;}
-  .loc-list b{display:block;font-family:'Fraunces',serif;font-size:21px;color:var(--forest);font-weight:560;}
-  :root[data-theme="dark"] .loc-list b, :root:not([data-theme="light"]) .loc-list b{color:var(--forest-dk);}
+  .loc-list b{display:block;font-family:'Manrope',sans-serif;font-size:21px;color:var(--clay);font-weight:700;}
   .loc-visual{border-radius:20px;border:1px solid var(--line);padding:26px;background:var(--card);box-shadow:var(--shadow);}
   .loc-visual .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--clay);border:1px solid currentColor;padding:5px 11px;border-radius:999px;margin-bottom:14px;}
 
@@ -237,20 +245,18 @@
   .spec-row:last-of-type{border-bottom:none;padding-bottom:0;}
   .spec-row .k{opacity:0.65;font-weight:600;}
   .spec-row .v{font-weight:700;text-align:right;font-variant-numeric:tabular-nums;}
-  .spec-price{font-family:'Fraunces',serif;font-size:28px;color:var(--forest);font-weight:560;}
-  :root[data-theme="dark"] .spec-price, :root:not([data-theme="light"]) .spec-price{color:var(--forest-dk);}
-  .spec-price small{font-family:'Karla',sans-serif;font-size:12.5px;font-weight:700;opacity:0.6;display:block;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
+  .spec-price{font-family:'Manrope',sans-serif;font-size:28px;color:var(--clay);font-weight:800;}
+  .spec-price small{font-family:'Inter',sans-serif;font-size:12.5px;font-weight:700;opacity:0.6;display:block;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
 
   .unit-amenities{padding:6px 0 20px;}
   .amenities{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:11px 26px;}
   @media (max-width:640px){ .amenities{grid-template-columns:1fr;} }
   .amenities li{display:flex;gap:10px;font-size:14.5px;align-items:flex-start;}
-  .amenities li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--forest);margin-top:8px;flex:none;}
-  :root[data-theme="dark"] .amenities li::before, :root:not([data-theme="light"]) .amenities li::before{background:var(--forest-dk);}
+  .amenities li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--clay);margin-top:8px;flex:none;}
   .amenities-box{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 24px;}
   .amenities-title{font-size:13px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;opacity:0.6;margin-bottom:14px;}
-  .real-desc{margin:18px 0 0;padding:18px 22px;border-left:3px solid var(--clay);background:var(--paper-2);border-radius:0 12px 12px 0;font-family:'Fraunces',serif;font-style:italic;font-size:15px;line-height:1.6;color:var(--ink);}
-  .real-desc-tag{display:block;font-family:'Karla',sans-serif;font-style:normal;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--clay);margin-bottom:8px;}
+  .real-desc{margin:18px 0 0;padding:18px 22px;border-left:3px solid var(--clay);background:var(--paper-2);border-radius:0 12px 12px 0;font-family:'Manrope',sans-serif;font-style:italic;font-size:15px;line-height:1.6;color:var(--ink);}
+  .real-desc-tag{display:block;font-family:'Inter',sans-serif;font-style:normal;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--clay);margin-bottom:8px;}
 
   /* ---------- 360 tour section ---------- */
   .tour-section{padding:14px 0 64px;}
@@ -262,7 +268,7 @@
   .viewer-wrap canvas{display:block;width:100% !important;height:100% !important;}
   .viewer-hint{position:absolute;top:16px;left:16px;z-index:3;background:rgba(24,28,23,0.62);color:#f5f0e6;font-size:12px;font-weight:700;padding:8px 13px;border-radius:999px;display:flex;align-items:center;gap:7px;letter-spacing:0.01em;backdrop-filter:blur(4px);pointer-events:none;}
   .viewer-hint svg{width:14px;height:14px;flex:none;}
-  .viewer-badge{position:absolute;top:16px;right:16px;z-index:3;background:rgba(182,96,60,0.92);color:#f8f2ea;font-size:11px;font-weight:700;padding:7px 12px;border-radius:999px;letter-spacing:0.04em;pointer-events:none;}
+  .viewer-badge{position:absolute;top:16px;right:16px;z-index:3;background:rgba(165,118,28,0.92);color:#f8f2ea;font-size:11px;font-weight:700;padding:7px 12px;border-radius:999px;letter-spacing:0.04em;pointer-events:none;}
   .viewer-roomlabel{position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(24,28,23,0.68);color:#f5f0e6;font-size:13px;font-weight:700;padding:9px 15px;border-radius:10px;backdrop-filter:blur(4px);pointer-events:none;}
 
   .gallery-nav{display:flex;align-items:center;gap:10px;margin-top:18px;}
@@ -291,8 +297,7 @@
   .room-info-blurb{font-size:15px;opacity:0.85;margin:8px 0 16px;}
   .feature-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
   .feature-list li{display:flex;gap:10px;font-size:14.5px;align-items:flex-start;}
-  .feature-list li::before{content:"✓";color:var(--forest);font-weight:700;flex:none;}
-  :root[data-theme="dark"] .feature-list li::before, :root:not([data-theme="light"]) .feature-list li::before{color:var(--forest-dk);}
+  .feature-list li::before{content:"✓";color:var(--clay);font-weight:700;flex:none;}
   .room-side{display:flex;flex-direction:column;gap:16px;}
 
   /* ---------- Map card ---------- */
@@ -300,7 +305,7 @@
   .map-visual{aspect-ratio:16/11;position:relative;overflow:hidden;background:var(--sand);}
   .map-visual iframe{width:100%;height:100%;display:block;border:0;}
   .map-info{padding:20px 22px 22px;}
-  .map-info .addr{font-family:'Fraunces',serif;font-weight:560;font-size:17px;margin-bottom:4px;}
+  .map-info .addr{font-family:'Manrope',sans-serif;font-weight:700;font-size:17px;margin-bottom:4px;}
   .map-info .addr-sub{font-size:13.5px;opacity:0.7;margin-bottom:16px;}
   .map-note{font-size:11.5px;opacity:0.55;margin-top:10px;}
 
@@ -309,8 +314,7 @@
   .how-row{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;}
   .how-item{display:flex;flex-direction:column;gap:2px;flex:1 1 140px;min-width:140px;}
   .how-item .hk{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;}
-  .how-item .hv{font-family:'Fraunces',serif;font-weight:560;font-size:19px;color:var(--forest);}
-  :root[data-theme="dark"] .how-item .hv, :root:not([data-theme="light"]) .how-item .hv{color:var(--forest-dk);}
+  .how-item .hv{font-family:'Manrope',sans-serif;font-weight:700;font-size:19px;color:var(--clay);}
 
   /* ---------- Referral banner ---------- */
   .ref-band{padding:52px 0;border-top:1px solid var(--line);}
@@ -328,13 +332,13 @@
   /* ---------- Tarifas (short-stay plans) ---------- */
   .plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:6px;}
   @media (max-width:900px){ .plan-grid{grid-template-columns:1fr;} }
-  .plan-card{border:1px solid var(--line);border-radius:18px;padding:26px 24px;background:var(--card);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;}
+  .plan-card{border:1px solid var(--line);border-radius:18px;padding:26px 24px;background:var(--card);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;transition:transform .32s cubic-bezier(.34,1.56,.64,1), border-color .2s ease, box-shadow .3s ease;}
+  .plan-card:hover{transform:translateY(-6px) scale(1.02);border-color:var(--clay);box-shadow:0 22px 40px -18px rgba(0,0,0,0.4);}
   .plan-card h3{font-size:21px;}
   .plan-card .plan-occ{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--clay);}
   .plan-card .plan-room{font-size:14px;opacity:0.75;margin-top:2px;}
-  .plan-card .plan-price{font-family:'Fraunces',serif;font-weight:560;font-size:24px;color:var(--forest);margin-top:10px;}
-  :root[data-theme="dark"] .plan-card .plan-price, :root:not([data-theme="light"]) .plan-card .plan-price{color:var(--forest-dk);}
-  .plan-card .plan-price small{font-family:'Karla',sans-serif;font-size:11.5px;font-weight:700;opacity:0.55;text-transform:uppercase;}
+  .plan-card .plan-price{font-family:'Manrope',sans-serif;font-weight:800;font-size:24px;color:var(--clay);margin-top:10px;}
+  .plan-card .plan-price small{font-family:'Inter',sans-serif;font-size:11.5px;font-weight:700;opacity:0.55;text-transform:uppercase;}
   .kids-box{margin-top:26px;padding:20px 22px;border-radius:16px;background:var(--paper-2);border:1px solid var(--line);}
   .kids-box h4{font-size:16px;margin-bottom:6px;}
   .kids-box p{font-size:14px;opacity:0.78;margin:0;}
@@ -342,7 +346,8 @@
   /* ---------- Legal hub / doc pages ---------- */
   .legal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;}
   @media (max-width:760px){ .legal-grid{grid-template-columns:1fr;} }
-  .legal-card{border:1px solid var(--line);border-radius:16px;padding:22px 24px;background:var(--card);text-decoration:none;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow);}
+  .legal-card{border:1px solid var(--line);border-radius:16px;padding:22px 24px;background:var(--card);text-decoration:none;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow);transition:transform .32s cubic-bezier(.34,1.56,.64,1), border-color .2s ease, box-shadow .3s ease;color:var(--ink);}
+  .legal-card:hover{transform:translateY(-6px) scale(1.02);border-color:var(--clay);box-shadow:0 22px 40px -18px rgba(0,0,0,0.4);}
   .legal-card h3{font-size:18px;}
   .legal-card p{font-size:13.5px;opacity:0.7;margin:0;}
   .legal-card .lc-cta{font-size:12.5px;font-weight:700;color:var(--clay);margin-top:auto;}
@@ -366,7 +371,21 @@
   .footer-bottom{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;opacity:0.6;font-size:12.5px;}
   .footer-legal{opacity:0.55;font-size:12px;max-width:60ch;margin-top:14px;}
 
-  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} }
+  /* Entrada/stagger de tarjetas (sección 44 del pedido) — setupRevealAnimations() agrega
+     .is-visible con un pequeño delay por índice (data-reveal-i) cuando cada .reveal entra en
+     pantalla. Nunca debe poder dejar una tarjeta invisible para siempre: si
+     IntersectionObserver no existe o prefers-reduced-motion está activo, la animación ni
+     siquiera se activa (ver REDUCED_MOTION en el JS); y como red de seguridad adicional, un
+     timeout corto fuerza .is-visible en cualquier .reveal que por algún motivo no se haya
+     activado todavía (ver setupRevealAnimations). */
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease, transform .5s ease;}
+  .reveal.is-visible{opacity:1;transform:translateY(0);}
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} .reveal{opacity:1;transform:none;} }
+
+  /* Duración/curva del crossfade nativo entre páginas (ver route()/applyRoute más abajo en el
+     JS) — el navegador ya hace la interpolación real, esto solo ajusta ritmo. Sin soporte
+     (::view-transition-* no reconocido) estas reglas simplemente no aplican a nada, cero costo. */
+  ::view-transition-old(root), ::view-transition-new(root){ animation-duration: .28s; animation-timing-function: cubic-bezier(.22,.9,.32,1); }
 
   @media (max-width:1024px){ .wrap{padding-inline:22px;} .hero-grid{gap:34px;} }
   @media (max-width:640px){
@@ -428,7 +447,7 @@
 
   .cal-card{border:1px solid var(--line);border-radius:16px;padding:18px 18px 16px;background:var(--card);}
   .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
-  .cal-nav b{font-family:'Fraunces',serif;font-size:16px;font-weight:560;text-transform:capitalize;}
+  .cal-nav b{font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;text-transform:capitalize;}
   .cal-nav button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:15px;}
   .cal-nav button:disabled{opacity:0.3;cursor:not-allowed;}
   .cal-nav button:not(:disabled):hover{border-color:var(--clay);color:var(--clay);}
@@ -456,18 +475,18 @@
   .cl-dot.cl-hold{background:var(--ochre);}
   .cal-summary{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);flex-wrap:wrap;}
   .cal-summary .cs-item{font-size:12.5px;}
-  .cal-summary .cs-item b{display:block;font-family:'Fraunces',serif;font-size:16px;font-weight:560;}
+  .cal-summary .cs-item b{display:block;font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;}
   .avail-msg{width:100%;margin:10px 0 0;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;}
-  .avail-msg.avail-yes{color:var(--forest);}
+  .avail-msg.avail-yes{color:var(--success);}
   .avail-msg.avail-no{color:var(--clay);}
   .avail-msg.avail-checking{opacity:0.6;font-weight:600;}
   .hold-card{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px;text-align:center;}
   .hold-card .hc-label{font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--clay);}
-  .hold-card .hc-unit{font-family:'Fraunces',serif;font-size:18px;margin-top:6px;}
+  .hold-card .hc-unit{font-family:'Manrope',sans-serif;font-size:18px;margin-top:6px;}
   .hold-card .hc-timer-label{font-size:11px;opacity:0.6;margin-top:14px;text-transform:uppercase;letter-spacing:0.05em;}
-  .hold-card .hc-timer{font-family:'Fraunces',serif;font-size:38px;font-weight:560;color:var(--clay);margin-top:4px;}
+  .hold-card .hc-timer{font-family:'Manrope',sans-serif;font-size:38px;font-weight:700;color:var(--clay);margin-top:4px;}
   .hold-card .hc-note{font-size:12.5px;opacity:0.7;margin-top:10px;}
-  .hold-expired{background:rgba(182,96,60,0.1);border:1px solid rgba(182,96,60,0.3);border-radius:16px;padding:20px;text-align:center;margin-bottom:20px;}
+  .hold-expired{background:rgba(165,118,28,0.1);border:1px solid rgba(165,118,28,0.3);border-radius:16px;padding:20px;text-align:center;margin-bottom:20px;}
   .hold-expired p{margin:0 0 14px;font-weight:600;}
   .payment-card{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:20px;}
   .payment-card .payment-disclaimer{font-size:12.5px;opacity:0.7;margin:0 0 12px;}
@@ -475,11 +494,11 @@
   .payment-row{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;border-bottom:1px dashed var(--line);padding-bottom:9px;}
   .payment-row:last-child{border-bottom:none;padding-bottom:0;}
   .payment-row span{opacity:0.65;}
-  .payment-row b{font-family:'Fraunces',serif;font-weight:560;text-align:right;}
+  .payment-row b{font-family:'Manrope',sans-serif;font-weight:700;text-align:right;}
   .pay-method-grid{display:flex;flex-direction:column;gap:10px;}
   .payment-report-form{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:20px;}
-  .payment-reported{background:rgba(51,81,63,0.1);border:1px solid rgba(51,81,63,0.3);border-radius:16px;padding:18px 20px;margin-bottom:20px;text-align:center;}
-  .payment-reported p{margin:0;font-weight:600;color:var(--forest);}
+  .payment-reported{background:rgba(30,122,68,0.1);border:1px solid rgba(30,122,68,0.3);border-radius:16px;padding:18px 20px;margin-bottom:20px;text-align:center;}
+  .payment-reported p{margin:0;font-weight:600;color:var(--success);}
   .guest-select{display:flex;align-items:center;gap:12px;margin-top:16px;}
   .guest-select label{font-size:13px;font-weight:700;opacity:0.7;}
   .stepper{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:999px;padding:4px;}
@@ -493,8 +512,7 @@
   :root:not([data-theme="light"]) .slot-btn.active{color:#12140f;}
   :root[data-theme="light"] .slot-btn.active{color:#f5f0e6;}
   .est-price{margin-top:16px;padding:14px 16px;border-radius:12px;background:var(--paper-2);display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
-  .est-price b{font-family:'Fraunces',serif;font-size:21px;color:var(--forest);font-weight:560;white-space:nowrap;}
-  :root:not([data-theme="light"]) .est-price b{color:var(--forest-dk);}
+  .est-price b{font-family:'Manrope',sans-serif;font-size:21px;color:var(--clay);font-weight:800;white-space:nowrap;}
   .est-price span{font-size:11.5px;opacity:0.6;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
   .est-price small{display:block;font-size:10.5px;}
 
@@ -514,13 +532,13 @@
   .phone-cc:focus-within .phone-cc-display{outline:2px solid var(--clay);outline-offset:2px;border-color:var(--clay);}
   @media (max-width:480px){ .phone-row{flex-direction:column;} .phone-cc{flex:none;width:100%;height:46px;} }
   .bk-field-error{border-color:#c0503a !important;}
-  .bk-field-valid{border-color:var(--forest) !important;}
+  .bk-field-valid{border-color:var(--success) !important;}
   .bk-error-msg{color:#c0503a;font-size:12px;font-weight:700;margin-top:5px;display:none;}
   .bk-error-msg.show{display:block;}
   .bk-field-hint{font-size:12px;opacity:0.65;margin-top:5px;}
   .email-status-note{border-radius:12px;padding:12px 14px;margin:12px 0;font-size:13.5px;line-height:1.5;}
   .email-status-note.sending{background:var(--sand);color:var(--ink);}
-  .email-status-note.sent{background:var(--sand);color:var(--forest-dk);}
+  .email-status-note.sent{background:var(--sand);color:var(--success);}
   .email-status-note.failed{background:rgba(192,80,58,0.12);color:#c0503a;}
   .resend-email-box{margin-top:10px;padding:14px;border:1.5px solid var(--line);border-radius:12px;}
   .resend-email-box input{width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);font-family:inherit;font-size:14px;margin:8px 0;}
@@ -548,7 +566,7 @@
   .bk-code-chip::after{right:-13px;}
   .bk-code-chip .cc-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#f5f0e6;opacity:0.75;}
   :root:not([data-theme="light"]) .bk-code-chip .cc-label{color:#12140f;opacity:0.65;}
-  .bk-code-chip .cc-code{font-family:'Fraunces',serif;font-size:38px;font-weight:560;letter-spacing:0.08em;color:#f8f4ea;margin-top:6px;}
+  .bk-code-chip .cc-code{font-family:'Manrope',sans-serif;font-size:38px;font-weight:700;letter-spacing:0.08em;color:#f8f4ea;margin-top:6px;}
   :root:not([data-theme="light"]) .bk-code-chip .cc-code{color:#12140f;}
   .bk-confirm-note{font-size:13px;opacity:0.75;text-align:center;margin-bottom:20px;line-height:1.6;}
   .bk-confirm-actions{display:flex;flex-direction:column;gap:10px;}
@@ -560,28 +578,28 @@
   .lookup-form input:focus{outline:none;border-color:var(--clay);}
   .lookup-result{margin-top:28px;max-width:520px;}
   .lookup-empty{margin-top:20px;font-size:14px;opacity:0.7;background:var(--paper-2);padding:14px 18px;border-radius:12px;max-width:520px;}
-  .status-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px;background:rgba(156,123,63,0.16);color:var(--ochre);}
+  .status-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px;background:rgba(143,106,30,0.16);color:var(--ochre);}
   .status-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
   .recent-list{margin-top:34px;max-width:520px;}
   .recent-list h4{font-size:13px;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;margin-bottom:12px;}
   .recent-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 16px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;text-decoration:none;color:inherit;background:var(--card);}
   .recent-item:hover{border-color:var(--clay);}
-  .recent-item .ri-code{font-family:'Fraunces',serif;font-weight:560;font-size:15px;}
+  .recent-item .ri-code{font-family:'Manrope',sans-serif;font-weight:700;font-size:15px;}
   .recent-item .ri-meta{font-size:12px;opacity:0.6;}
   .type-tag{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;}
-  .type-tag.type-reserva{background:rgba(51,81,63,0.14);color:var(--forest);}
-  .type-tag.type-cita{background:rgba(182,96,60,0.16);color:var(--clay);}
+  .type-tag.type-reserva{background:rgba(165,118,28,0.14);color:var(--clay);}
+  .type-tag.type-cita{background:rgba(165,118,28,0.16);color:var(--clay);}
   .recent-item .ri-left{display:flex;flex-direction:column;gap:5px;}
   .recent-item .ri-top{display:flex;align-items:center;gap:8px;}
 
   /* ---------------- Chat web con IA ---------------- */
   #chatRoot{position:fixed;right:20px;bottom:20px;z-index:85;display:flex;flex-direction:column-reverse;align-items:flex-end;gap:14px;}
-  .chat-launcher{width:56px;height:56px;border-radius:50%;background:var(--forest);color:#f5f0e6;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow);transition:transform .15s ease;flex-shrink:0;}
-  .chat-launcher:hover{transform:scale(1.06);}
+  .chat-launcher{width:56px;height:56px;border-radius:50%;background:var(--forest);color:#f5f0e6;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow);transition:transform .32s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease;flex-shrink:0;}
+  .chat-launcher:hover{transform:scale(1.1) rotate(-4deg);box-shadow:0 14px 26px -8px rgba(0,0,0,0.45);}
   .chat-launcher svg{width:25px;height:25px;}
   .chat-panel{width:min(370px, calc(100vw - 40px));max-height:min(560px, calc(100vh - 120px));background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;}
   .chat-panel-head{background:var(--forest);color:#f5f0e6;padding:16px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
-  .chat-panel-title{font-family:'Fraunces',serif;font-weight:600;font-size:16px;}
+  .chat-panel-title{font-family:'Manrope',sans-serif;font-weight:600;font-size:16px;}
   .chat-panel-sub{font-size:12px;opacity:0.82;margin-top:2px;}
   .chat-close{background:transparent;border:none;color:#f5f0e6;cursor:pointer;font-size:15px;line-height:1;padding:6px;opacity:0.85;}
   .chat-close:hover{opacity:1;}
@@ -597,10 +615,28 @@
   .chat-typing span:nth-child(3){animation-delay:.3s;}
   @keyframes chatTypingBounce{0%,60%,100%{transform:translateY(0);opacity:.45;}30%{transform:translateY(-4px);opacity:1;}}
   @media (prefers-reduced-motion: reduce){ .chat-typing span{animation:none;} }
+  /* Tarjeta de apartamento dentro del chat (sección 45 del pedido: "no mostrar todo como texto
+     plano") — mismo criterio visual que .unit-status-badge, nunca colores nuevos inventados. Es
+     un <a> completo (nunca un botón anidado adentro, HTML inválido) hacia la ficha real de la
+     unidad — la reserva se hace ahí, donde ya existe el flujo completo y probado. */
+  .chat-apt-card{display:flex;gap:10px;align-self:flex-start;max-width:84%;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px;text-decoration:none;color:inherit;transition:border-color .2s ease, transform .32s cubic-bezier(.34,1.56,.64,1);}
+  .chat-apt-card:hover{border-color:var(--clay);transform:translateY(-2px) scale(1.015);}
+  .chat-apt-card img{width:58px;height:58px;object-fit:cover;border-radius:9px;flex-shrink:0;background:var(--paper-2);}
+  .chat-apt-card-body{min-width:0;flex:1;}
+  .chat-apt-card-title{font-family:'Manrope',sans-serif;font-weight:600;font-size:13px;}
+  .chat-apt-card-meta{font-size:11.5px;opacity:0.68;margin-top:2px;}
+  .chat-apt-card-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:5px;}
+  .chat-apt-card-price{font-family:'Manrope',sans-serif;font-weight:700;font-size:12.5px;color:var(--clay);white-space:nowrap;}
+  .chat-apt-card .unit-status-badge{font-size:10px;padding:3px 8px;}
+  /* Estados de operación del agente (sección 46) — mismo look que chat-typing pero con una
+     etiqueta específica en vez de un genérico "escribiendo", para que se sienta como una
+     acción real en curso, no un simple retraso de red. */
+  .chat-thinking{display:flex;align-items:center;gap:8px;padding:10px 14px;align-self:flex-start;font-size:12.5px;color:var(--ink);opacity:0.75;}
+  .chat-thinking .chat-typing{padding:0;}
   .chat-panel-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--card);}
   .chat-panel-input input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:10px 16px;font-family:inherit;font-size:13.5px;background:var(--paper);color:var(--ink);}
   .chat-panel-input input:focus-visible{outline:2px solid var(--clay);outline-offset:1px;}
-  .chat-panel-input button{width:40px;height:40px;padding:0;border-radius:50%;flex-shrink:0;}
+  .chat-panel-input button{width:40px;height:40px;padding:0;border-radius:50%;flex-shrink:0;justify-content:center;}
   .chat-panel-input button svg{width:17px;height:17px;}
   @media (max-width:480px){
     #chatRoot{right:12px;bottom:12px;}
@@ -616,7 +652,7 @@
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Menú" aria-expanded="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
-      <a href="#/" class="logo">USO <em>Inmobiliario</em></a>
+      <a href="#/" class="logo"><img src="media/brand/logo-icon.webp" alt="" class="logo-mark">USO <em>Inmobiliario</em></a>
     </div>
     <ul class="nav-links">
       <li><a href="#/" data-nav="home"></a></li>
@@ -658,7 +694,7 @@
   <div class="wrap">
     <div class="footer-grid">
       <div>
-        <a href="#/" class="logo">USO <em>Inmobiliario</em></a>
+        <a href="#/" class="logo"><img src="media/brand/logo-icon.webp" alt="" class="logo-mark">USO <em>Inmobiliario</em></a>
         <p id="footTag" style="opacity:0.65;margin-top:12px;max-width:32ch;font-size:13.5px;"></p>
       </div>
       <div class="footer-cols">
@@ -1026,6 +1062,14 @@
     chatTitle:{es:"Asistente Uso Inmobiliario",en:"Uso Inmobiliario Assistant"},
     chatSubtitle:{es:"Respuestas automáticas, al instante",en:"Automated replies, instantly"},
     chatEmptyHint:{es:"Pregúntanos por disponibilidad, precios o agenda una visita — te respondemos al instante.",en:"Ask us about availability, pricing, or book a visit — we reply instantly."},
+    chatThinkingGeneric:{es:"Procesando tu mensaje...",en:"Processing your message..."},
+    chatThinkingSearch:{es:"Buscando apartamentos...",en:"Searching apartments..."},
+    chatThinkingAvailability:{es:"Consultando disponibilidad...",en:"Checking availability..."},
+    chatThinkingPrice:{es:"Calculando precio...",en:"Calculating price..."},
+    chatThinkingReservation:{es:"Preparando tu reserva...",en:"Preparing your booking..."},
+    chatThinkingVisit:{es:"Agendando tu visita...",en:"Scheduling your visit..."},
+    chatCardGuests:{es:"{n} huésp.",en:"{n} guests"},
+    chatCardPerMonth:{es:"/mes",en:"/mo"},
     chatInputPlaceholder:{es:"Escribe tu mensaje...",en:"Type your message..."},
     chatSendLabel:{es:"Enviar",en:"Send"},
     chatErrorGeneric:{es:"No pudimos enviar tu mensaje. Intenta de nuevo o escríbenos por WhatsApp.",en:"We couldn't send your message. Please try again or message us on WhatsApp."},
@@ -1477,7 +1521,7 @@ var HERO_IMG = "media/hero.jpg";
   window.LocalDataProvider = LocalDataProvider;
   window.__uso_setDataProvider = function(provider){
     DataProvider = provider;
-    route();
+    route(true);
   };
   // Bug real reportado: un cliente puede completar todo el flujo de reserva/pago sin ningún
   // error visible mientras esta sesión sigue en LocalDataProvider (Firebase configurado pero
@@ -1864,36 +1908,36 @@ var HERO_IMG = "media/hero.jpg";
       var ctx = canvas.getContext('2d');
       var isEs = LANG === 'es';
 
-      ctx.fillStyle = '#f5f0e6';
+      ctx.fillStyle = '#f7f5f1';
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#33513f';
+      ctx.fillStyle = '#23262b';
       ctx.fillRect(0, 0, W, 220);
-      ctx.fillStyle = '#f5f0e6';
+      ctx.fillStyle = '#f7f5f1';
       ctx.textAlign = 'center';
-      ctx.font = '700 36px Georgia, "Times New Roman", serif';
+      ctx.font = '800 36px Manrope, Arial, sans-serif';
       ctx.fillText('USO INMOBILIARIO', W/2, 110);
-      ctx.font = '400 26px Georgia, "Times New Roman", serif';
+      ctx.font = '400 26px Manrope, Arial, sans-serif';
       ctx.fillText(isEs ? 'Reserva creada' : 'Booking created', W/2, 160);
 
       roundRect(ctx, 80, 280, W-160, 260, 24);
-      ctx.fillStyle = '#e4d8c3';
+      ctx.fillStyle = '#f0e4c8';
       ctx.fill();
-      ctx.fillStyle = '#9c7b3f';
-      ctx.font = '700 22px Georgia, serif';
+      ctx.fillStyle = '#8f6a1e';
+      ctx.font = '700 22px Manrope, Arial, sans-serif';
       ctx.fillText(isEs ? 'CÓDIGO DE RESERVA' : 'BOOKING CODE', W/2, 350);
-      ctx.fillStyle = '#33513f';
-      ctx.font = '700 92px Georgia, serif';
+      ctx.fillStyle = '#23262b';
+      ctx.font = '800 92px Manrope, Arial, sans-serif';
       ctx.fillText(res.code, W/2, 470);
 
       var y = 630;
       ctx.textAlign = 'left';
       function row(label, value){
-        ctx.font = '400 21px Karla, Arial, sans-serif';
-        ctx.fillStyle = '#6b6b60';
+        ctx.font = '400 21px Inter, Arial, sans-serif';
+        ctx.fillStyle = '#667085';
         ctx.fillText(label, 90, y);
-        ctx.font = '700 27px Karla, Arial, sans-serif';
-        ctx.fillStyle = '#20241f';
+        ctx.font = '700 27px Inter, Arial, sans-serif';
+        ctx.fillStyle = '#1a1d21';
         ctx.fillText(String(value), 90, y+36);
         y += 96;
       }
@@ -1903,11 +1947,11 @@ var HERO_IMG = "media/hero.jpg";
       row('Check-out', fmtLong(res.checkout));
       if(res.nights) row(isEs?'Noches':'Nights', res.nights);
 
-      ctx.fillStyle = '#e4d8c3';
+      ctx.fillStyle = '#f0e4c8';
       ctx.fillRect(0, H-90, W, 90);
-      ctx.fillStyle = '#6b6b60';
+      ctx.fillStyle = '#667085';
       ctx.textAlign = 'center';
-      ctx.font = '400 20px Karla, Arial, sans-serif';
+      ctx.font = '400 20px Inter, Arial, sans-serif';
       ctx.fillText('Uso Inmobiliario · Laureles, Medellín', W/2, H-40);
 
       return canvas;
@@ -2944,7 +2988,7 @@ var HERO_IMG = "media/hero.jpg";
     var CHAT_API_URL = BACKEND_BASE_URL + '/chat/web/message';
     var MAX_HISTORY_STORED = 40;
 
-    var state = { open: false, sending: false, messages: [], memSessionId: null };
+    var state = { open: false, sending: false, messages: [], memSessionId: null, thinkingLabel: null };
 
     function getSessionId(){
       try{
@@ -3003,16 +3047,73 @@ var HERO_IMG = "media/hero.jpg";
       return out;
     }
 
+    // Sección 45 del pedido: "no mostrar todo como texto plano" — el bot ya manda el link real
+    // de cada apartamento (apartmentUrl() en businessTools.js), nunca Markdown; acá se detecta
+    // ESE mismo link (antes de que formatMessageHtml lo vuelva un <a> genérico) para armar una
+    // tarjeta real con los datos que ya están cargados en el navegador (ApartmentService), sin
+    // ninguna llamada de red nueva. Deduplicado — si el bot menciona el mismo apartamento dos
+    // veces en una respuesta, una sola tarjeta.
+    function extractApartmentMentions(text){
+      var re = /#\/unidad\/([a-zA-Z0-9_-]+)\?u=([a-zA-Z0-9_-]+)/g;
+      var seen = {}, out = [], m;
+      while((m = re.exec(String(text||''))) !== null){
+        var key = m[1]+'_'+m[2];
+        if(seen[key]) continue;
+        seen[key] = true;
+        out.push({typeKey:m[1], num:m[2]});
+      }
+      return out;
+    }
+    function apartmentCardHtml(typeKey, num){
+      var unit = ApartmentService.getApartment(typeKey, num);
+      if(!unit) return ''; // referencia obsoleta (unidad ya no existe) — no romper el chat por esto
+      var cat = ApartmentService.getCategory(typeKey);
+      var thumb = (cat && cat.rooms && cat.rooms[0] && cat.rooms[0].thumb) || '';
+      var status = unit.status;
+      return ''
+        + '<a class="chat-apt-card" href="#/unidad/'+encodeURIComponent(typeKey)+'?u='+encodeURIComponent(num)+'">'
+        +   (thumb ? '<img src="'+thumb+'" alt="" loading="lazy">' : '')
+        +   '<div class="chat-apt-card-body">'
+        +     '<div class="chat-apt-card-title">'+escapeHtml(unitLabel(unit))+'</div>'
+        +     '<div class="chat-apt-card-meta">'+unit.area+' m² · '+t('chatCardGuests').replace('{n}', unit.maxPersons)+'</div>'
+        +     '<div class="chat-apt-card-row">'
+        +       (unit.month != null ? '<span class="chat-apt-card-price">'+fmtCOP(unit.month)+'<span style="font-weight:400;opacity:0.6;"> '+t('chatCardPerMonth')+'</span></span>' : '<span></span>')
+        +       '<span class="unit-status-badge st-'+status+'">'+ApartmentService.getStatusLabel(status)+'</span>'
+        +     '</div>'
+        +   '</div>'
+        + '</a>';
+    }
+    function apartmentCardsHtml(text){
+      return extractApartmentMentions(text).map(function(a){ return apartmentCardHtml(a.typeKey, a.num); }).join('');
+    }
+
     function bubbleHtml(msg){
       var cls = 'chat-bubble ' + (msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-bot');
-      return '<div class="'+cls+'">'+formatMessageHtml(msg.text)+'</div>';
+      var cards = msg.role === 'assistant' ? apartmentCardsHtml(msg.text) : '';
+      return '<div class="'+cls+'">'+formatMessageHtml(msg.text)+'</div>'+cards;
+    }
+
+    // Sección 46 del pedido: en vez de un "escribiendo..." genérico, una etiqueta que refleje
+    // lo que el cliente en realidad está pidiendo — heurística simple sobre SU propio mensaje
+    // (el cliente nunca ve qué función invocó el modelo del lado del servidor, esto es lo más
+    // honesto que se puede mostrar sin inventar un estado que no se conoce de verdad).
+    function guessThinkingLabel(userText){
+      var s = String(userText||'').toLowerCase();
+      if(/disponib|libre|ocupad/.test(s)) return t('chatThinkingAvailability');
+      if(/precio|cuesta|vale|tarifa|costo/.test(s)) return t('chatThinkingPrice');
+      if(/reserv|apart[ae]r|quiero.*(quedarme|alojar)/.test(s)) return t('chatThinkingReservation');
+      if(/visita|conocer|cita|agendar/.test(s)) return t('chatThinkingVisit');
+      if(/apartamento|unidad|habitaci|cuarto/.test(s)) return t('chatThinkingSearch');
+      return t('chatThinkingGeneric');
     }
 
     function panelHtml(){
       var body = state.messages.length
         ? state.messages.map(bubbleHtml).join('')
         : '<p class="chat-empty-hint">'+t('chatEmptyHint')+'</p>';
-      var typing = state.sending ? '<div class="chat-bubble chat-bubble-bot chat-typing"><span></span><span></span><span></span></div>' : '';
+      var typing = state.sending
+        ? '<div class="chat-thinking"><div class="chat-typing"><span></span><span></span><span></span></div>'+escapeHtml(state.thinkingLabel||t('chatThinkingGeneric'))+'</div>'
+        : '';
       return ''
         + '<div class="chat-panel" role="dialog" aria-label="'+t('chatTitle')+'">'
         +   '<div class="chat-panel-head">'
@@ -3066,6 +3167,7 @@ var HERO_IMG = "media/hero.jpg";
       input.value = '';
       state.messages.push({role:'user', text: text});
       state.sending = true;
+      state.thinkingLabel = guessThinkingLabel(text);
       saveHistory();
       render();
 
@@ -3193,17 +3295,17 @@ var HERO_IMG = "media/hero.jpg";
 
     html += '<section class="unit-amenities"><div class="wrap">'
       + '<div class="plan-grid">'
-      +   '<div class="plan-card"><h3>'+t('planEstandarT')+'</h3>'
+      +   '<div class="plan-card reveal" data-reveal-i="0"><h3>'+t('planEstandarT')+'</h3>'
       +     '<span class="plan-occ">'+t('planEstandarOcc')+'</span>'
       +     '<p class="plan-room">'+t('planEstandarRoom')+'</p>'
       +     '<p class="plan-price">$85.000<small> COP '+t('planNight')+'</small></p>'
       +   '</div>'
-      +   '<div class="plan-card"><h3>'+t('planDobleT')+'</h3>'
+      +   '<div class="plan-card reveal" data-reveal-i="1"><h3>'+t('planDobleT')+'</h3>'
       +     '<span class="plan-occ">'+t('planDobleOcc')+'</span>'
       +     '<p class="plan-room">'+t('planDobleRoom')+'</p>'
       +     '<p class="plan-price">$100.000<small> COP '+t('planNight')+'</small></p>'
       +   '</div>'
-      +   '<div class="plan-card"><h3>'+t('planGrupoT')+'</h3>'
+      +   '<div class="plan-card reveal" data-reveal-i="2"><h3>'+t('planGrupoT')+'</h3>'
       +     '<span class="plan-occ">'+t('planGrupoOcc')+'</span>'
       +     '<p class="plan-room">'+t('planGrupoRoom')+'</p>'
       +     '<p class="plan-price">+$50.000<small> COP '+t('planNight')+'</small></p>'
@@ -3226,9 +3328,9 @@ var HERO_IMG = "media/hero.jpg";
       + '<p style="opacity:0.78;margin-top:10px;max-width:60ch;">'+t('legalHubSub')+'</p>'
       + '</div></section>';
     html += '<section class="unit-amenities"><div class="wrap"><div class="legal-grid">'
-      + LEGAL_ORDER.map(function(slug){
+      + LEGAL_ORDER.map(function(slug, i){
           var d = LEGAL_DOCS[slug];
-          return '<a class="legal-card" href="#/legal/'+slug+'"><h3>'+d.title+'</h3><p>'+d.intro+'</p><span class="lc-cta">'+t('legalRead')+' →</span></a>';
+          return '<a class="legal-card reveal" data-reveal-i="'+i+'" href="#/legal/'+slug+'"><h3>'+d.title+'</h3><p>'+d.intro+'</p><span class="lc-cta">'+t('legalRead')+' →</span></a>';
         }).join('')
       + '</div></div></section>';
     return html;
@@ -3661,6 +3763,48 @@ var HERO_IMG = "media/hero.jpg";
 
   function unitLabel(unit){ return 'Apartamento H'+unit.num; }
 
+  // Motion design (sección 44 del pedido) — revela con un stagger breve las tarjetas marcadas
+  // .reveal al entrar en pantalla. Se llama tras CADA render de ruta (ver route()), así que
+  // vuelve a activar la animación en la nueva pantalla sin ningún estado global que limpiar.
+  var REDUCED_MOTION = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  // Bug real encontrado probando en vivo: .reveal fija su PROPIA `transition` (necesaria para
+  // el fade-in de entrada) con la misma especificidad que la `transition` propia de cada
+  // tarjeta (.ua-card/.plan-card/etc, 1 sola clase igual) — en un empate así gana quien esté
+  // MÁS ABAJO en el CSS, que es .reveal (definida después) — así que el hover con scale/spring
+  // de las tarjetas terminaba animando con el timing lento del reveal (0.5s) en vez del suyo.
+  // settle() quita reveal/is-visible una vez que el fade-in YA TERMINÓ (nunca antes, o se
+  // pierde la animación de entrada) — el elemento queda en su estado visible normal de
+  // siempre y `transition` vuelve a ser cosa de la tarjeta, no de este sistema.
+  function setupRevealAnimations(){
+    var items = document.querySelectorAll('.reveal:not(.is-visible)');
+    if(!items.length) return;
+    function settle(el){
+      el.classList.remove('reveal', 'is-visible');
+      el.style.transitionDelay = '';
+    }
+    if(REDUCED_MOTION || typeof IntersectionObserver === 'undefined'){
+      items.forEach(function(el){ settle(el); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(!entry.isIntersecting) return;
+        var el = entry.target;
+        var delay = Math.min(parseInt(el.getAttribute('data-reveal-i')||'0', 10) * 60, 360);
+        el.style.transitionDelay = delay+'ms';
+        el.classList.add('is-visible');
+        io.unobserve(el);
+        setTimeout(function(){ settle(el); }, delay + 550);
+      });
+    }, { threshold: 0.12 });
+    items.forEach(function(el){ io.observe(el); });
+    // Red de seguridad: si por lo que sea (viewport raro, timing) el observer nunca dispara
+    // para alguna tarjeta, nunca debe quedar invisible para siempre — a los 2s se fuerza.
+    setTimeout(function(){
+      document.querySelectorAll('.reveal:not(.is-visible)').forEach(function(el){ settle(el); });
+    }, 2000);
+  }
+
   function buildRealDesc(key, unit){
     var isLoft = key === 'estudio';
     if(LANG === 'en'){
@@ -3675,9 +3819,9 @@ var HERO_IMG = "media/hero.jpg";
       + unit.feature.es+'.';
   }
 
-  function unitCardHTML(typeKey, u, unit){
+  function unitCardHTML(typeKey, u, unit, i){
     var st = unit.status;
-    return '<a class="ua-card st-'+st+'" href="#/unidad/'+typeKey+'?u='+unit.num+'">'
+    return '<a class="ua-card reveal st-'+st+'" data-reveal-i="'+(i||0)+'" href="#/unidad/'+typeKey+'?u='+unit.num+'">'
       + '<div class="ua-thumb"><img src="'+u.rooms[0].thumb+'" alt="" loading="lazy" decoding="async">'
       +   '<span class="ua-badge st-'+st+'">'+ApartmentService.getStatusLabel(st)+'</span>'
       +   '<span class="ua-360">360°</span>'
@@ -3710,7 +3854,7 @@ var HERO_IMG = "media/hero.jpg";
           }).join('')
       + '</div>'
       + (units.length
-          ? '<div class="unit-grid">' + units.map(function(unit){ return unitCardHTML(typeKey, u, unit); }).join('') + '</div>'
+          ? '<div class="unit-grid">' + units.map(function(unit, i){ return unitCardHTML(typeKey, u, unit, i); }).join('') + '</div>'
           : '<p class="catalog-note">'+t('filterEmpty')+'</p>')
       + '<p class="catalog-note">'+t('catalogNote')+'</p>';
   }
@@ -3737,6 +3881,11 @@ var HERO_IMG = "media/hero.jpg";
       body.querySelectorAll('.sl-filter').forEach(function(btn){
         btn.addEventListener('click', function(){ currentFilter = btn.getAttribute('data-filter'); render(); });
       });
+      // Este innerHTML pasa por fuera del app.innerHTML principal de route() — las tarjetas
+      // .reveal recién insertadas nunca existían en el DOM cuando route() ya había llamado
+      // setupRevealAnimations() una vez, así que hay que volver a llamarla acá (cubre montaje
+      // inicial, cambio de tab y cambio de filtro de estado, los tres pasan por este render()).
+      setupRevealAnimations();
     }
     tabs.forEach(function(b){
       b.addEventListener('click', function(){ currentTab = b.getAttribute('data-type'); currentFilter = 'all'; render(); });
@@ -3983,7 +4132,11 @@ var HERO_IMG = "media/hero.jpg";
     window.addEventListener('resize', galResizeHandler);
   }
 
-  function route(){
+  // skipTransition: true para llamadas que NO son una navegación real del usuario (refresco de
+  // datos cuando Firebase activa, cambio de idioma) — solo hashchange (navegación real) usa el
+  // crossfade; lo demás actualiza directo, tanto porque no hay una "página anterior" real de la
+  // que transicionar como porque evita colisionar con una transición ya en curso.
+  function route(skipTransition){
     PANO.dispose();
     // El modal de reserva vive en #modalRoot, FUERA de #app (route() solo reemplaza #app) — sin
     // cerrarlo acá, navegar con atrás/adelante o editando el hash a mano mientras el modal está
@@ -4036,33 +4189,70 @@ var HERO_IMG = "media/hero.jpg";
       isHome = true;
     }
 
-    app.innerHTML = html;
-    trackPageview('/' + pathBody);
-    document.querySelectorAll('.nav-links a, .mobile-nav a').forEach(function(a){
-      a.classList.toggle('is-active', a.getAttribute('data-nav') === navActive);
-    });
-    if(unitCtx){
-      mountUnitInteractivity(unitCtx);
-      window.scrollTo(0,0);
-    } else if(isHome){
-      mountHomeInteractivity(tab || 'estudio');
-      mountHeroPano();
-      if(tab){
-        var target = document.getElementById('catalogo');
-        if(target) target.scrollIntoView({block:'start'});
+    function applyRoute(){
+      app.innerHTML = html;
+      trackPageview('/' + pathBody);
+      setupRevealAnimations();
+      document.querySelectorAll('.nav-links a, .mobile-nav a').forEach(function(a){
+        a.classList.toggle('is-active', a.getAttribute('data-nav') === navActive);
+      });
+      if(unitCtx){
+        mountUnitInteractivity(unitCtx);
+        window.scrollTo(0,0);
+      } else if(isHome){
+        mountHomeInteractivity(tab || 'estudio');
+        mountHeroPano();
+        if(tab){
+          var target = document.getElementById('catalogo');
+          if(target) target.scrollIntoView({block:'start'});
+        } else {
+          window.scrollTo(0,0);
+        }
+      } else if(parts[0] === 'mi-reserva'){
+        mountMiReservaInteractivity(params.get('code'));
+        window.scrollTo(0,0);
+      } else if(parts[0] === 'visitas'){
+        mountVisitsHubInteractivity();
+        window.scrollTo(0,0);
       } else {
         window.scrollTo(0,0);
       }
-    } else if(parts[0] === 'mi-reserva'){
-      mountMiReservaInteractivity(params.get('code'));
-      window.scrollTo(0,0);
-    } else if(parts[0] === 'visitas'){
-      mountVisitsHubInteractivity();
-      window.scrollTo(0,0);
-    } else {
-      window.scrollTo(0,0);
     }
+    // Transición entre páginas (sección 44 del pedido) — View Transitions API nativa,
+    // progresiva: donde el navegador la soporta (Chrome/Edge, Safari reciente) hace un
+    // crossfade real entre el contenido viejo y el nuevo (ver CSS ::view-transition-*); donde
+    // no existe, cae exactamente al cambio instantáneo de siempre — nunca rompe nada ni
+    // necesita una librería. REDUCED_MOTION la desactiva a propósito (una transición visual es
+    // justo lo que ese ajuste pide evitar).
+    //
+    // Dos bugs reales encontrados probando en vivo, no solo teóricos:
+    // 1) startViewTransition() en el PRIMER render de toda la carga de página lanza
+    //    InvalidStateError (el documento todavía no está en un estado válido para transicionar
+    //    "desde" nada) — hasRouted evita usar la API en esa primera llamada, solo a partir de
+    //    la segunda (una navegación real ya tiene un "antes" del que transicionar).
+    // 2) route() se llama desde varios lugares legítimos que pueden caer muy seguidos (boot
+    //    inicial, y de nuevo en cuanto Firebase activa vía window.__uso_setDataProvider,
+    //    típicamente menos de 300ms después) — el navegador rechaza una SEGUNDA
+    //    startViewTransition mientras la primera sigue animando. viewTransitionActive evita
+    //    eso: si ya hay una en curso, esta llamada aplica el cambio directo, sin crossfade —
+    //    nunca deja el contenido sin actualizar, solo se pierde la animación en ese caso puntual.
+    if(!skipTransition && hasRouted && !REDUCED_MOTION && !viewTransitionActive && typeof document.startViewTransition === 'function'){
+      viewTransitionActive = true;
+      var vt = document.startViewTransition(applyRoute);
+      // ViewTransition expone 3 promesas (ready/updateCallbackDone/finished) — cualquiera de
+      // las 3 puede rechazar sin que rechazar las otras (bug real visto en vivo: solo capturar
+      // "finished" dejaba "ready" como unhandled rejection en consola, con InvalidStateError,
+      // aunque el contenido ya se hubiera actualizado bien). Capturar las 3 por separado.
+      vt.ready.catch(function(){});
+      vt.updateCallbackDone.catch(function(){});
+      vt.finished.catch(function(){}).then(function(){ viewTransitionActive = false; });
+    } else {
+      applyRoute();
+    }
+    hasRouted = true;
   }
+  var viewTransitionActive = false;
+  var hasRouted = false;
 
   function setNavText(navKey, text){
     document.querySelectorAll('[data-nav="'+navKey+'"]').forEach(function(el){ el.textContent = text; });
@@ -4102,7 +4292,7 @@ var HERO_IMG = "media/hero.jpg";
   }
 
   document.querySelectorAll('.lang-toggle button').forEach(function(b){
-    b.addEventListener('click', function(){ LANG = b.getAttribute('data-lang'); applyStatic(); route(); if(BOOKING.isOpen()) BOOKING.render(); CHATWIDGET.render(); });
+    b.addEventListener('click', function(){ LANG = b.getAttribute('data-lang'); applyStatic(); route(true); if(BOOKING.isOpen()) BOOKING.render(); CHATWIDGET.render(); });
   });
 
   // Menú móvil — en pantallas ≤860px .nav-links se oculta (ver CSS) y este botón hamburguesa
