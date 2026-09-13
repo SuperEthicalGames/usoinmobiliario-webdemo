@@ -32,7 +32,7 @@ index.html                     whatsapp-assistant (Render)      usoinmobiliario-
 
 email-worker/ (Cloudflare Worker) — construido, NO conectado (EMAIL_WORKER_CONFIG vacío en
   index.html); el correo transaccional real hoy sale de whatsapp-assistant/src/emailService.js
-  (SMTP de Gmail), no de este Worker.
+  (API HTTP de Resend, no SMTP — ver "Correo transaccional" más abajo), no de este Worker.
 ```
 
 **Migración de escrituras al backend (2026-09-13):** hasta esta fecha, el sitio público escribía
@@ -54,6 +54,17 @@ server-side, nunca confía en lo que mande el cliente. `firebase.js:sweepExpired
 cada 5 min) reemplaza el reclamo oportunista que antes hacía el propio navegador al consultar
 disponibilidad — necesario porque, una vez que `database.rules.json` cierre la escritura anónima
 (paso manual, ver `DEPLOYMENT.md`), esa escritura del navegador ya no sería posible.
+
+**Correo transaccional: de SMTP de Gmail a la API de Resend (2026-09-13):** al configurar por
+fin `GMAIL_APP_PASSWORD` en producción (Render) para probar el correo real por primera vez, cada
+envío se colgaba con `ETIMEDOUT` — no era la contraseña, era Render bloqueando/descartando en
+silencio la conexión SMTP saliente, algo común en plataformas cloud (Render, Heroku, Vercel,
+Railway) para prevenir abuso de spam, confirmado en vivo contra el proyecto real, no supuesto.
+`emailService.js` ahora manda el mismo correo (misma plantilla, mismo contenido) por la API HTTP
+de Resend (`https://api.resend.com/emails`, `fetch` nativo, sin SDK nuevo) — HTTPS nunca se
+bloquea. `nodemailer` se quitó de `package.json`. Mientras no se verifique un dominio propio en
+Resend, el remitente de sandbox (`onboarding@resend.dev`) solo puede mandar al correo con el que
+se creó la cuenta de Resend — suficiente para probar, no para producción real con clientes.
 
 ## Componentes
 
@@ -92,7 +103,7 @@ src/firebase.js        — único lugar que toca el Admin SDK; reimplementa a ma
                           que las Rules le dan gratis al sitio web (atomicidad, anti-doble-reserva)
 src/adminAuth.js       — verificación de ID token + gate de super admin
 src/adminRoutes.js     — todo lo que consume el panel (usoinmobiliario-middleware)
-src/emailService.js    — correo transaccional real (SMTP de Gmail)
+src/emailService.js    — correo transaccional real (API HTTP de Resend, no SMTP)
 src/conversationStore.js — memoria de conversación en proceso, con TTL
 src/validators.js      — anti-datos-inventados (placeholders) + formato
 src/pricing.js         — misma fórmula de precio que index.html, más priceIntegrityCheck()

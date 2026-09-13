@@ -76,13 +76,18 @@ const config = {
   // cuenta), así que la restricción es real, no solo de UI.
   superAdminEmail: optional('SUPER_ADMIN_EMAIL', 'usoinmobiliario@gmail.com'),
 
-  // Correo transaccional real, $0 — SMTP de Gmail con la cuenta real del negocio + una
-  // "contraseña de aplicación" (requiere verificación en dos pasos activada en esa cuenta de
-  // Gmail; Google > Cuenta > Seguridad > Contraseñas de aplicaciones). No es la contraseña
-  // normal de la cuenta — nunca usar esa.
+  // Correo transaccional real, $0 — API HTTP de Resend (resend.com), no SMTP. SMTP de Gmail
+  // directo desde este backend se abandonó el 2026-09-13: Render (como la mayoría de
+  // plataformas cloud) bloquea o descarta en silencio las conexiones SMTP salientes desde IPs
+  // de centro de datos — confirmado en vivo (ETIMEDOUT), no una suposición. Resend expone el
+  // mismo envío por HTTPS (puerto 443, nunca bloqueado), capa gratis de sobra (3.000/mes).
+  // RESEND_FROM: mientras no se verifique un dominio propio en Resend, la cuenta solo puede
+  // usar su remitente de sandbox (onboarding@resend.dev) y solo puede mandar al correo con el
+  // que te registraste ahí — suficiente para probar, real para producción solo tras verificar
+  // un dominio propio (resend.com/domains).
   email: {
-    gmailUser: optional('GMAIL_USER', 'usoinmobiliario@gmail.com'),
-    gmailAppPassword: optional('GMAIL_APP_PASSWORD', ''),
+    resendApiKey: optional('RESEND_API_KEY', ''),
+    resendFrom: optional('RESEND_FROM', 'Uso Inmobiliario <onboarding@resend.dev>'),
   },
 
   // URL pública donde vive el sitio (index.html, Firebase Hosting) — usada para armar el link

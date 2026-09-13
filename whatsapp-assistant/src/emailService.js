@@ -1,31 +1,49 @@
-const nodemailer = require('nodemailer');
 const config = require('../config');
 const fb = require('./firebase');
 
-// Correo transaccional real, $0 (sección "correo gratis" del plan) — reemplaza el Worker de
-// Cloudflare + Amazon SES anterior (bloqueado por depender de una cuenta AWS que el usuario no
-// controla de forma confiable). Envía por SMTP de Gmail usando la cuenta real del negocio
-// (usoinmobiliario@gmail.com + una "contraseña de aplicación", nunca la contraseña normal de
-// la cuenta) desde este backend, que ya está siempre encendido en Render — sin dominio que
-// verificar, sin cuenta de terceros. Límite real de Gmail: 500 destinatarios/día, de sobra
-// para este negocio.
+// Correo transaccional real, $0 (sección "correo gratis" del plan). Pasó por TRES intentos
+// reales, no uno: primero un Worker de Cloudflare + Amazon SES (abandonado — dependía de una
+// cuenta AWS que el usuario no controlaba de forma confiable), después SMTP de Gmail directo
+// desde este mismo backend (funcionaba probado en local, pero en producción — Render — cada
+// envío colgaba con ETIMEDOUT: Render, como la mayoría de plataformas cloud, bloquea o
+// descarta en silencio las conexiones SMTP salientes de IPs de centro de datos, confirmado en
+// vivo el 2026-09-13, no un supuesto). La solución real es dejar de usar SMTP por completo:
+// Resend expone el mismo envío por una API HTTP (puerto 443, el único que ninguna plataforma
+// cloud bloquea) — capa gratis de sobra para este negocio (3.000/mes). Sin SDK nuevo: `fetch`
+// nativo de Node (20+) contra su REST API es toda la integración que hace falta.
 //
 // Puerto EXACTO del diseño ya construido en index.html (EmailTemplate.reservationCreatedHtml,
 // EmailService.sendReservationCreated, reservationDisplayStatus) — no se rediseña la plantilla,
-// solo se traslada a Node porque ahora el envío ocurre en el servidor, no en el navegador.
+// solo cambia CÓMO sale el correo, nunca su contenido/aspecto.
+
+const RESEND_API_URL = 'https://api.resend.com/emails';
 
 function isConfigured() {
-  return !!(config.email.gmailUser && config.email.gmailAppPassword);
+  return !!config.email.resendApiKey;
 }
 
-let transporter = null;
-function getTransporter() {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: config.email.gmailUser, pass: config.email.gmailAppPassword },
+// Único punto real de envío — reemplaza getTransporter()/sendMail() de nodemailer. Devuelve
+// {messageId} en éxito; lanza en fallo (mismo contrato que nodemailer.sendMail, así que los tres
+// call sites de abajo no tuvieron que cambiar su manejo de errores).
+async function sendEmail({ to, subject, html }) {
+  const res = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.email.resendApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from: config.email.resendFrom, to: [to], subject, html }),
   });
-  return transporter;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // Mientras no se verifique un dominio propio en Resend, la cuenta solo puede mandar al
+    // correo con el que te registraste (sandbox) — un 403 acá casi siempre es exactamente eso,
+    // no una credencial mala. `data.message` trae el texto real de Resend, útil en los logs.
+    const err = new Error(data.message || `resend-error-${res.status}`);
+    err.resendStatus = res.status;
+    throw err;
+  }
+  return { messageId: data.id };
 }
 
 const MONTHS_LONG = {
@@ -314,7 +332,7 @@ async function sendStatusUpdate(rec, templates, lang) {
   const html = statusUpdateHtml(rec, templates, language);
   const subject = language === 'es' ? templates.subjectEs : templates.subjectEn;
   try {
-    const info = await getTransporter().sendMail({ from: `"Uso Inmobiliario" <${config.email.gmailUser}>`, to: rec.email, subject, html });
+    const info = await sendEmail({ to: rec.email, subject, html });
     return { sent: true, messageId: info.messageId };
   } catch (err) {
     console.error(`[emailService] No se pudo enviar '${subject}' a ${rec.email}:`, err.message);
@@ -405,12 +423,7 @@ async function sendReservationConfirmation({ code, email, lang }) {
   const html = reservationCreatedHtml(rec, categoryLabel, language);
   const subject = (language === 'es' ? 'Tu reserva ' : 'Your booking ') + rec.code + (language === 'es' ? ' fue creada' : ' was created');
 
-  const info = await getTransporter().sendMail({
-    from: `"Uso Inmobiliario" <${config.email.gmailUser}>`,
-    to: rec.email,
-    subject,
-    html,
-  });
+  const info = await sendEmail({ to: rec.email, subject, html });
   return { sent: true, messageId: info.messageId };
 }
 
@@ -432,12 +445,7 @@ async function sendVisitConfirmation({ code, email, lang }) {
   const html = visitCreatedHtml(rec, categoryLabel, language);
   const subject = (language === 'es' ? 'Tu cita ' : 'Your visit ') + rec.code + (language === 'es' ? ' fue agendada' : ' was scheduled');
 
-  const info = await getTransporter().sendMail({
-    from: `"Uso Inmobiliario" <${config.email.gmailUser}>`,
-    to: rec.email,
-    subject,
-    html,
-  });
+  const info = await sendEmail({ to: rec.email, subject, html });
   return { sent: true, messageId: info.messageId };
 }
 

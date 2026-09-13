@@ -33,8 +33,8 @@ services:
         value: gpt-4o-mini
       - key: WHATSAPP_API_VERSION
         value: v20.0
-      - key: GMAIL_USER
-        value: usoinmobiliario@gmail.com
+      - key: RESEND_FROM
+        value: "Uso Inmobiliario <onboarding@resend.dev>"
       - key: ADMIN_ORIGIN
         value: https://superethicalgames.github.io
       # Secretos reales — se rellenan a mano en el dashboard de Render, nunca aquí:
@@ -52,5 +52,5 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: GMAIL_APP_PASSWORD
+      - key: RESEND_API_KEY
         sync: false

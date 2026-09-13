@@ -91,8 +91,9 @@ token coincida con el rol correcto (`requireSuperAdmin`), nunca solo `auth != nu
 - **`firebase/firebase-config.js`** (apiKey web de Firebase) está en git a propósito — no es
   secreto por diseño de Firebase (la protección real son las Rules, no ocultar esta clave).
   `usoinmobiliario-middleware/src/config.ts` sigue el mismo criterio para el panel.
-- **Secretos reales** (tokens de WhatsApp, claves de Gemini/OpenAI, contraseña de aplicación de
-  Gmail, credencial de servicio de Firebase) viven solo en `.env` local (nunca commiteado) y en
+- **Secretos reales** (tokens de WhatsApp, claves de Gemini/OpenAI, API key de Resend para el
+  correo transaccional, credencial de servicio de Firebase) viven solo en `.env` local (nunca
+  commiteado) y en
   variables de entorno marcadas `sync: false` en `render.yaml` (se llenan a mano en el dashboard
   de Render, nunca en el repo).
 - **Si una credencial llega a exponerse alguna vez:** rotarla en su proveedor (Meta for
