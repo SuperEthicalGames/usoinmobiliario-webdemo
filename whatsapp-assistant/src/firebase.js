@@ -171,7 +171,17 @@ async function createApartment(typeKey, num, data) {
   const key = unitKeyOf(typeKey, num);
   const snap = await dbGet(`apartments/${key}`);
   if (snap.exists()) { const e = new Error('already-exists'); e.code = 'conflict'; throw e; }
-  const base = { typeKey, num: String(num), status: 'disponible', isVisible: true, area: 0, maxPersons: 1, baths: 1, beds: [] };
+  // isVisible:false (nunca true) — el panel crea con POST /apartments {} (sin tarifas ni
+  // feature todavía, ver CreateApartmentForm en el middleware, cuyo propio texto dice "se crea
+  // oculto por defecto") y feature:{es:'',en:''} en vez de ausente del todo — sin este último,
+  // un apartamento recién creado y hecho visible antes de terminar de editarlo no tenía
+  // `feature`, y unit.feature[LANG] en index.html (sin respaldo hasta ahora) tiraba TypeError
+  // dentro del .map() que arma la grilla, tumbando el catálogo COMPLETO de esa categoría, no
+  // solo la tarjeta de esa unidad — bug real visto en producción (2026-09-13).
+  const base = {
+    typeKey, num: String(num), status: 'disponible', isVisible: false,
+    area: 0, maxPersons: 1, baths: 1, beds: [], feature: { es: '', en: '' },
+  };
   const created = sanitizeApartmentPatch(data, base);
   await dbSet(`apartments/${key}`, created);
   return { ...created, _key: key };

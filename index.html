@@ -1109,6 +1109,9 @@
   };
   function t(key){ return STR[key][LANG]; }
   function fmtCOP(n){
+    // n == null cubre un apartamento sin tarifas todavía (recién creado desde el CMS del
+    // middleware, ver createApartment en firebase.js) — sin esto mostraba literalmente "$undefined".
+    if(n == null) return '—';
     if(n === 0) return '$0';
     return '$'+String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   }
@@ -3968,18 +3971,25 @@ var HERO_IMG = "media/hero.jpg";
     }, 2000);
   }
 
+  // unit.feature puede faltar del todo en un apartamento recién creado desde el CMS del
+  // middleware (POST /apartments con body vacío, ver ApartmentEditor.tsx) — sin este respaldo,
+  // acceder unit.feature[LANG] directo tira TypeError y, como unitCardHTML corre dentro de un
+  // .map() al construir la grilla, ESE throw tumbaba el catálogo COMPLETO de la categoría, no
+  // solo la tarjeta del apartamento incompleto (bug real en producción, 2026-09-13).
+  function featureText(unit){ return (unit.feature && unit.feature[LANG]) || ''; }
+
   function buildRealDesc(key, unit){
     var isLoft = key === 'estudio';
     if(LANG === 'en'){
       return 'Long stay, from '+fmtCOP(unit.month)+' COP per month. '
         + (isLoft ? 'Furnished loft-style studio' : 'Furnished 2-ambientes studio')
         + ', '+unit.area+' square meters, open kitchen on a natural gas line, bathroom with hot water, natural light and ventilation. '
-        + unit.feature.en+'.';
+        + featureText(unit)+'.';
     }
     return 'Renta larga, valor estadía desde '+fmtCOP(unit.month)+' COP por mes. '
       + (isLoft ? 'Aparta estudio amoblado tipo loft' : 'Aparta estudio amoblado 2 ambientes')
       + ' con área de '+unit.area+' metros cuadrados, cocina integral con red de gas natural, baño con agua caliente, iluminación y ventilación natural. '
-      + unit.feature.es+'.';
+      + featureText(unit)+'.';
   }
 
   function unitCardHTML(typeKey, u, unit, i){
@@ -3991,7 +4001,7 @@ var HERO_IMG = "media/hero.jpg";
       + '</div>'
       + '<div class="ua-body">'
       +   '<div class="ua-top"><span class="ua-code">'+(unit.flagship?'<span class="star">★</span>':'')+unitLabel(unit)+'</span><span class="ua-area">'+unit.area+' m²</span></div>'
-      +   '<p class="ua-feature">'+unit.feature[LANG]+'</p>'
+      +   '<p class="ua-feature">'+featureText(unit)+'</p>'
       +   '<p class="ua-price">'+fmtCOP(unit.month)+' <small>'+t('desdeMes')+'</small></p>'
       +   '<span class="ua-cta">'+(st==='disponible'?t('verRecorrido'):t('verDetalle'))+' →</span>'
       + '</div></a>';
@@ -4123,7 +4133,7 @@ var HERO_IMG = "media/hero.jpg";
     html += '<section class="unit-hero"><div class="wrap">'
       + '<div class="unit-hero-top"><div>'
       +   '<span class="unit-status-badge st-'+unit.status+'"><span class="dot"></span>'+ApartmentService.getStatusLabel(unit.status)+'</span>'
-      +   '<p class="unit-code">'+u.shortName[LANG]+' · '+unit.feature[LANG]+'</p><h1>'+unitLabel(unit)+'</h1>'
+      +   '<p class="unit-code">'+u.shortName[LANG]+' · '+featureText(unit)+'</p><h1>'+unitLabel(unit)+'</h1>'
       +   '<p class="blurb">'+u.blurb[LANG]+'</p>'
       + '</div>'
       + '<div class="spec-card">'
