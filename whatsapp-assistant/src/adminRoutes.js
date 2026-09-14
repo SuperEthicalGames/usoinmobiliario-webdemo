@@ -403,18 +403,21 @@ router.post('/contracts/:code/payments', STAFF, asyncHandler(async (req, res) =>
   await logAction(req, 'contract.add_payment', code, { receiptNumber: payment.receiptNumber });
 
   let emailResult = { sent: false };
+  let emailDebug;
   try {
     const pdfBuffer = await generateContractReceiptPdf(contract, payment);
     emailResult = await emailService.sendContractReceipt(contract, payment, pdfBuffer);
+    emailDebug = { isConfigured: emailService.isConfigured(), ...emailResult };
   } catch (err) {
     console.error('[adminRoutes] No se pudo generar/enviar el recibo del abono:', err.message);
+    emailDebug = { threw: err.message, isConfigured: emailService.isConfigured() };
   }
   const tenantPhone = (contract.tenants || []).find((t) => t.phone)?.phone;
   if (tenantPhone) {
     notifyByWhatsApp({ phone: tenantPhone, code: contract.code },
       `🧾 Registramos tu abono del contrato ${contract.code} — recibo N.° ${payment.receiptNumber}. Saldo pendiente del período: ${fmtCOPForWhatsApp(payment.balanceAfter)}.`);
   }
-  res.status(201).json({ contract, payment, emailSent: emailResult.sent });
+  res.status(201).json({ contract, payment, emailSent: emailResult.sent, __emailDebug: emailDebug });
 }));
 
 // Descarga bajo demanda — el PDF nunca se guarda, se regenera siempre a partir de los mismos
