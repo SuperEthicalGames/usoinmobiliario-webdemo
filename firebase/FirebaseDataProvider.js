@@ -88,7 +88,12 @@ function apartmentsByCategory(typeKey){
       num: apt.num, status: effectiveStatus(typeKey, apt.num, apt.status), area: apt.area, maxPersons: apt.maxPersons,
       baths: apt.baths, beds: apt.beds, feature: apt.feature,
       one: rates.one, two: rates.two, extra: rates.extra, month: rates.month,
-      promo: apt.promo, flagship: apt.flagship
+      promo: apt.promo, flagship: apt.flagship,
+      // Fotos/ambientes son por apartamento (decisión 2026-09-13: cada unidad es distinta,
+      // aunque comparta categoría) — antes vivían en categories/{typeKey}/rooms, compartidas
+      // por todas las unidades del modelo; eso ya no existe. apt.rooms ausente (unidad recién
+      // creada) se trata como [] en todo lector — nunca undefined.
+      rooms: apt.rooms || []
     });
   });
   return out;
@@ -325,13 +330,6 @@ var FirebaseDataProvider = {
     var out = {};
     Object.keys(cat).forEach(function(k){ out[k] = cat[k]; });
     out.units = apartmentsByCategory(typeKey);
-    // rooms = fotos/recorrido 360° del modelo — desde que las imágenes se migraron a URLs
-    // externas (ya no base64), este campo son solo strings livianos, así que sí puede vivir
-    // en Firebase sin tocar Storage. Se prefiere lo que traiga categories/{typeKey}/rooms si
-    // ya se importó (ver firebase/seed-apartments.json); mientras eso no pase, se completa
-    // desde LocalDataProvider para no dejar el catálogo sin fotos.
-    var localCat = window.LocalDataProvider.getCategory(typeKey);
-    out.rooms = (cat.rooms && cat.rooms.length) ? cat.rooms : (localCat ? localCat.rooms : []);
     return out;
   },
   getApartments: function(typeKey){ return apartmentsByCategory(typeKey); },

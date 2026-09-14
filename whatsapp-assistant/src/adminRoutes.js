@@ -142,16 +142,11 @@ router.get('/payment-info', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getPaymentInfo());
 }));
 
+// Solo lectura — categories es puramente navegación/agrupación (nombre "1 Ambiente"/
+// "2 Ambientes" para filtrar), sin editor propio. Las fotos/descripciones (antes acá) ahora
+// son parte de cada apartamento — ver sanitizeApartmentPatch/rooms en firebase.js.
 router.get('/categories', ANY_STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.getCategories());
-}));
-
-// Editar un modelo (textos + fotos de cada ambiente, compartidos por todas sus unidades) —
-// mismo nivel que /apartments y /payment-info: son los datos que vende la página pública.
-router.put('/categories/:typeKey', requireSuperAdmin, asyncHandler(async (req, res) => {
-  const updated = await fb.updateCategory(req.params.typeKey, req.body || {});
-  await logAction(req, 'category.update', req.params.typeKey, { fields: Object.keys(req.body || {}) });
-  res.json(updated);
 }));
 
 // El panel usa esto para decidir qué mostrar en la navegación — la restricción REAL vive en

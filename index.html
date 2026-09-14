@@ -190,6 +190,7 @@
   .ua-badge.st-en-uso{background:rgba(143,106,30,0.94);color:#fff8ea;}
   .ua-badge.st-reservado{background:rgba(24,28,23,0.62);color:#f0ece2;}
   .ua-360{position:absolute;right:12px;top:12px;background:rgba(165,118,28,0.92);color:#f8f2ea;font-size:10px;font-weight:700;padding:6px 10px;border-radius:999px;letter-spacing:0.03em;}
+  .ua-nophoto{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 16px;font-size:12px;font-weight:600;color:var(--ink);opacity:0.4;background:repeating-linear-gradient(135deg,var(--sand) 0 12px,rgba(0,0,0,0.02) 12px 24px);}
   .ua-body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1;}
   .ua-top{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums;}
   .ua-code{font-weight:700;font-size:15px;}
@@ -890,7 +891,9 @@
     reserved:{es:"Reservado",en:"Reserved"},
     verRecorrido:{es:"Ver recorrido 360°",en:"View 360° tour"},
     verDetalle:{es:"Ver detalle",en:"View details"},
-    catalogNote:{es:"Unidades de un mismo modelo comparten distribución — el recorrido 360° mostrado es representativo del modelo.",en:"Units of the same model share the same layout — the 360° tour shown is representative of the model."},
+    catalogNote:{es:"Cada apartamento tiene sus propias fotos y recorrido 360° — lo que ves es la unidad real, no un modelo genérico.",en:"Each apartment has its own photos and 360° tour — what you see is the real unit, not a generic model."},
+    noPhotoYet:{es:"Fotos próximamente",en:"Photos coming soon"},
+    noPhotoYetUnit:{es:"Todavía no hay recorrido 360° de este apartamento — pronto vas a poder verlo acá. Mientras tanto, escríbenos por WhatsApp y te mandamos fotos reales.",en:"There's no 360° tour of this apartment yet — you'll be able to see it here soon. Meanwhile, message us on WhatsApp and we'll send you real photos."},
     mapAddrSub:{es:"Laureles · San Joaquín, Medellín, Antioquia",en:"Laureles · San Joaquín, Medellín, Antioquia"},
     mapOpen:{es:"Abrir en Google Maps",en:"Open in Google Maps"},
 
@@ -3188,8 +3191,9 @@ var HERO_IMG = "media/hero.jpg";
     function apartmentCardHtml(typeKey, num){
       var unit = ApartmentService.getApartment(typeKey, num);
       if(!unit) return ''; // referencia obsoleta (unidad ya no existe) — no romper el chat por esto
-      var cat = ApartmentService.getCategory(typeKey);
-      var thumb = (cat && cat.rooms && cat.rooms[0] && cat.rooms[0].thumb) || '';
+      // Fotos son por apartamento (cada unidad es distinta, aunque comparta categoría) — ver
+      // decisión del 2026-09-13, antes vivían en la categoría compartida.
+      var thumb = (unit.rooms && unit.rooms[0] && unit.rooms[0].thumb) || '';
       var status = unit.status;
       return ''
         + '<a class="chat-apt-card" href="#/unidad/'+encodeURIComponent(typeKey)+'?u='+encodeURIComponent(num)+'">'
@@ -3994,10 +3998,18 @@ var HERO_IMG = "media/hero.jpg";
 
   function unitCardHTML(typeKey, u, unit, i){
     var st = unit.status;
+    // Fotos son por apartamento — un apartamento recién creado desde el CMS empieza sin
+    // ninguna (decisión del 2026-09-13: "vacíos", nunca copiadas de otra unidad) hasta que el
+    // dueño suba la suya real. Sin este respaldo, unit.rooms[0] undefined tiraba TypeError
+    // dentro del .map() que arma la grilla — mismo tipo de bug ya visto con `feature`.
+    var hasPhoto = !!(unit.rooms && unit.rooms[0] && unit.rooms[0].thumb);
     return '<a class="ua-card reveal st-'+st+'" data-reveal-i="'+(i||0)+'" href="#/unidad/'+typeKey+'?u='+unit.num+'">'
-      + '<div class="ua-thumb"><img src="'+u.rooms[0].thumb+'" alt="" loading="lazy" decoding="async">'
+      + '<div class="ua-thumb">'
+      +   (hasPhoto
+            ? '<img src="'+unit.rooms[0].thumb+'" alt="" loading="lazy" decoding="async">'
+            : '<div class="ua-nophoto">'+t('noPhotoYet')+'</div>')
       +   '<span class="ua-badge st-'+st+'">'+ApartmentService.getStatusLabel(st)+'</span>'
-      +   '<span class="ua-360">360°</span>'
+      +   (hasPhoto ? '<span class="ua-360">360°</span>' : '')
       + '</div>'
       + '<div class="ua-body">'
       +   '<div class="ua-top"><span class="ua-code">'+(unit.flagship?'<span class="star">★</span>':'')+unitLabel(unit)+'</span><span class="ua-area">'+unit.area+' m²</span></div>'
@@ -4122,12 +4134,14 @@ var HERO_IMG = "media/hero.jpg";
 
   function renderUnit(key, initialSlug, unitCode){
     var u = ApartmentService.getCategory(key);
-    var rooms = u.rooms;
-    var idx = rooms.findIndex(function(r){ return r.slug === initialSlug; });
-    if(idx === -1) idx = 0;
     var nums = u.units.map(function(x){ return x.num; });
     if(nums.indexOf(unitCode) === -1) unitCode = nums[0];
     var unit = ApartmentService.getApartment(key, unitCode);
+    // Fotos por apartamento, no por categoría (decisión 2026-09-13) — cada unidad puede tener
+    // cero, una o varias, según lo que el dueño ya haya subido para ESA unidad específica.
+    var rooms = unit.rooms || [];
+    var idx = rooms.length ? rooms.findIndex(function(r){ return r.slug === initialSlug; }) : -1;
+    if(idx === -1 && rooms.length) idx = 0;
 
     var html = crumbs([{label:u.shortName[LANG], href:'#/?tab='+key}, {label:unitLabel(unit)}]);
     html += '<section class="unit-hero"><div class="wrap">'
@@ -4171,7 +4185,8 @@ var HERO_IMG = "media/hero.jpg";
 
     html += '<section class="tour-section"><div class="wrap">'
       + '<div class="section-head"><h2 style="font-size:1.7rem;">'+t('tourTitle')+'</h2><p>'+t('tourSub')+'</p></div>'
-      + '<div class="tour-grid">'
+      + (rooms.length ? (
+      '<div class="tour-grid">'
       +   '<div>'
       +     '<div class="viewer-wrap" id="panoView">'
       +       '<div class="viewer-hint">'+svgArrows+'<span>'+t('dragHint')+'</span></div>'
@@ -4195,6 +4210,9 @@ var HERO_IMG = "media/hero.jpg";
       +   '<div class="room-side" id="roomInfo">' + roomInfoHTML(rooms[idx]) + '</div>'
       + '</div>'
       + '<p style="opacity:0.55;font-size:12.5px;margin-top:12px;">'+t('catalogNote')+'</p>'
+      ) : (
+      '<div class="ua-nophoto" style="aspect-ratio:16/6;border-radius:16px;">'+t('noPhotoYetUnit')+'</div>'
+      ))
       + '<div style="margin-top:14px;"><button type="button" class="btn btn-primary" id="tourBookBtn">'+t('bookNow')+' →</button></div>'
       + '</div></section>';
 

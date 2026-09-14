@@ -131,6 +131,48 @@ async function getApartment(typeKey, num) {
 // estado ambiguo: status nunca debe faltar (rompe effectiveStatus/catalog), isVisible ausente
 // se trata como true en todo lector, así que se normaliza a un booleano explícito en cuanto se
 // toca la unidad desde acá, en vez de dejarlo implícito para siempre.
+// Mismo criterio que isSafeProofUrl en app.js:339 (URL admin-supplied que termina en un
+// atributo HTML sin escapar del lado del sitio público) — largo acotado y sin comillas/ángulos
+// que puedan escapar el atributo `src="..."`. A diferencia de isSafeProofUrl, acá también se
+// acepta una ruta relativa `media/...` (nunca solo https) porque las fotos ya existentes de
+// seed-apartments.json viven así (archivos reales del repo, no URLs); las fotos NUEVAS que
+// suba el CMS sí serán siempre https (Cloudinary).
+function isSafeMediaUrl(url) {
+  if (typeof url !== 'string' || url.length === 0 || url.length >= 2000) return false;
+  if (/["'<>]/.test(url)) return false;
+  return /^https:\/\//.test(url) || /^media\//.test(url);
+}
+function slugify(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // quita tildes (NFD deja la tilde como diacrítico combinante aparte)
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+function sanitizeBilingual(v) {
+  return { es: String(v?.es ?? '').trim(), en: String(v?.en ?? '').trim() };
+}
+// rooms (fotos + descripción de cada ambiente) son POR APARTAMENTO, no por categoría — decisión
+// 2026-09-13: aunque dos unidades compartan categoría ("estudio"), cada una es una distribución
+// real distinta, así que un modelo compartido no sirve para describirlas. Se reemplaza COMPLETO
+// (mismo criterio que rates) — el editor del middleware siempre manda el array entero, nunca un
+// merge parcial que podría mezclar rooms viejos y nuevos en un orden inconsistente.
+function sanitizeRooms(rooms) {
+  if (!Array.isArray(rooms)) { const e = new Error('invalid-rooms'); e.code = 'invalid'; throw e; }
+  const usedSlugs = new Set();
+  return rooms.map((r, i) => {
+    if (!isSafeMediaUrl(r?.img) || !isSafeMediaUrl(r?.thumb)) {
+      const e = new Error('invalid-room-photo'); e.code = 'invalid'; throw e;
+    }
+    let slug = slugify(r?.slug) || slugify(r?.name?.es) || `room-${i}`;
+    while (usedSlugs.has(slug)) slug = `${slug}-${i}`;
+    usedSlugs.add(slug);
+    return {
+      slug, img: r.img, thumb: r.thumb, area: String(r?.area ?? '').trim(),
+      name: sanitizeBilingual(r?.name), tag: sanitizeBilingual(r?.tag), blurb: sanitizeBilingual(r?.blurb),
+      features: Array.isArray(r?.features) ? r.features.map(sanitizeBilingual) : [],
+    };
+  });
+}
+
 const APARTMENT_STATUSES = new Set(['disponible', 'en-uso', 'reservado']);
 function sanitizeApartmentPatch(data, existing) {
   const out = { ...existing };
@@ -155,6 +197,7 @@ function sanitizeApartmentPatch(data, existing) {
       ...(r.month != null ? { month: Number(r.month) } : {}),
     };
   }
+  if (data.rooms !== undefined) out.rooms = sanitizeRooms(data.rooms);
   if (data.promo !== undefined) out.promo = !!data.promo;
   if (data.flagship !== undefined) out.flagship = !!data.flagship;
   return out;
@@ -171,83 +214,21 @@ async function createApartment(typeKey, num, data) {
   const key = unitKeyOf(typeKey, num);
   const snap = await dbGet(`apartments/${key}`);
   if (snap.exists()) { const e = new Error('already-exists'); e.code = 'conflict'; throw e; }
-  // isVisible:false (nunca true) — el panel crea con POST /apartments {} (sin tarifas ni
-  // feature todavía, ver CreateApartmentForm en el middleware, cuyo propio texto dice "se crea
-  // oculto por defecto") y feature:{es:'',en:''} en vez de ausente del todo — sin este último,
-  // un apartamento recién creado y hecho visible antes de terminar de editarlo no tenía
+  // isVisible:false (nunca true) — el panel crea con POST /apartments {} (sin tarifas, feature
+  // ni fotos todavía, ver CreateApartmentForm en el middleware, cuyo propio texto dice "se crea
+  // oculto por defecto") y feature:{es:'',en:''} + rooms:[] en vez de ausentes del todo — sin
+  // esto, un apartamento recién creado y hecho visible antes de terminar de editarlo no tenía
   // `feature`, y unit.feature[LANG] en index.html (sin respaldo hasta ahora) tiraba TypeError
   // dentro del .map() que arma la grilla, tumbando el catálogo COMPLETO de esa categoría, no
-  // solo la tarjeta de esa unidad — bug real visto en producción (2026-09-13).
+  // solo la tarjeta de esa unidad — bug real visto en producción (2026-09-13). rooms:[] es
+  // análogo: el sitio ya sabe mostrar "fotos próximamente" para una unidad sin rooms todavía.
   const base = {
     typeKey, num: String(num), status: 'disponible', isVisible: false,
-    area: 0, maxPersons: 1, baths: 1, beds: [], feature: { es: '', en: '' },
+    area: 0, maxPersons: 1, baths: 1, beds: [], feature: { es: '', en: '' }, rooms: [],
   };
   const created = sanitizeApartmentPatch(data, base);
   await dbSet(`apartments/${key}`, created);
   return { ...created, _key: key };
-}
-
-// --- Categorías (modelo compartido por todas las unidades de ese tipo: textos + fotos de
-// cada ambiente) — hasta ahora vivían a mano en index.html (UNITS.estudio/UNITS.dos) y solo
-// se leían de Firebase si categories/{typeKey}/rooms ya existía ahí (ver comentario en
-// FirebaseDataProvider.js:328-334), que hasta hoy nunca pasó. Mismo nivel de sensibilidad que
-// apartments (requireSuperAdmin en adminRoutes.js) — son los textos/fotos que vende la página
-// pública, mismo criterio ya aplicado ahí. ---
-
-// Mismo criterio que isSafeProofUrl en app.js:339 (URL admin-supplied que termina en un
-// atributo HTML sin escapar del lado del sitio público) — largo acotado y sin comillas/ángulos
-// que puedan escapar el atributo `src="..."`. A diferencia de isSafeProofUrl, acá también se
-// acepta una ruta relativa `media/...` (nunca solo https) porque las fotos ya existentes de
-// seed-apartments.json viven así (archivos reales del repo, no URLs) — la migración de la Fase
-// 3 las deja pasar tal cual; las fotos NUEVAS que suba el CMS sí serán siempre https (Cloudinary).
-function isSafeMediaUrl(url) {
-  if (typeof url !== 'string' || url.length === 0 || url.length >= 2000) return false;
-  if (/["'<>]/.test(url)) return false;
-  return /^https:\/\//.test(url) || /^media\//.test(url);
-}
-function slugify(s) {
-  return String(s || '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '') // quita tildes (NFD deja la tilde como diacrítico combinante aparte)
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-function sanitizeBilingual(v) {
-  return { es: String(v?.es ?? '').trim(), en: String(v?.en ?? '').trim() };
-}
-// rooms se reemplaza COMPLETO (mismo criterio que rates en sanitizeApartmentPatch) — el editor
-// del middleware siempre manda el array entero, nunca un merge parcial que podría mezclar
-// rooms viejos y nuevos en un orden inconsistente.
-function sanitizeRooms(rooms) {
-  if (!Array.isArray(rooms)) { const e = new Error('invalid-rooms'); e.code = 'invalid'; throw e; }
-  const usedSlugs = new Set();
-  return rooms.map((r, i) => {
-    if (!isSafeMediaUrl(r?.img) || !isSafeMediaUrl(r?.thumb)) {
-      const e = new Error('invalid-room-photo'); e.code = 'invalid'; throw e;
-    }
-    let slug = slugify(r?.slug) || slugify(r?.name?.es) || `room-${i}`;
-    while (usedSlugs.has(slug)) slug = `${slug}-${i}`;
-    usedSlugs.add(slug);
-    return {
-      slug, img: r.img, thumb: r.thumb, area: String(r?.area ?? '').trim(),
-      name: sanitizeBilingual(r?.name), tag: sanitizeBilingual(r?.tag), blurb: sanitizeBilingual(r?.blurb),
-      features: Array.isArray(r?.features) ? r.features.map(sanitizeBilingual) : [],
-    };
-  });
-}
-function sanitizeCategoryPatch(data, existing) {
-  const out = { ...existing };
-  if (data.catLabel !== undefined) out.catLabel = sanitizeBilingual(data.catLabel);
-  if (data.name !== undefined) out.name = sanitizeBilingual(data.name);
-  if (data.shortName !== undefined) out.shortName = sanitizeBilingual(data.shortName);
-  if (data.blurb !== undefined) out.blurb = sanitizeBilingual(data.blurb);
-  if (data.rooms !== undefined) out.rooms = sanitizeRooms(data.rooms);
-  return out;
-}
-async function updateCategory(typeKey, data) {
-  const snap = await dbGet(`categories/${typeKey}`);
-  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
-  const updated = sanitizeCategoryPatch(data, snap.val());
-  await dbSet(`categories/${typeKey}`, updated);
-  return updated;
 }
 
 // --- Idempotencia (sección 25 del pedido, ya señalada como pendiente legítima en
@@ -1102,7 +1083,6 @@ module.exports = {
   generateCode,
   unitKeyOf,
   getCategories,
-  updateCategory,
   getApartments,
   getApartment,
   updateApartment,
