@@ -1006,6 +1006,12 @@ async function checkInReservation(code) {
   if (rec.type !== 'reserva') { const e = new Error('not-a-reservation'); e.code = 'not-a-reservation'; throw e; }
   if (rec.status !== 'confirmada') { const e = new Error('reservation-not-confirmed'); e.code = 'reservation-not-confirmed'; throw e; }
   if (rec.actualCheckinAt) { const e = new Error('already-checked-in'); e.code = 'already-checked-in'; throw e; }
+  // No antes de tiempo (bug real reportado: nada impedía marcar "en uso" días antes de que el
+  // huésped llegara) — pero SÍ se permite después de la fecha planeada (una llegada tardía es
+  // normal, bloquearla del todo sería peor que el problema original).
+  if (rec.checkin && todayIsoBogota() < rec.checkin) {
+    const e = new Error('checkin-too-early'); e.code = 'checkin-too-early'; throw e;
+  }
   await dbSet(`${pathFor('reserva')}/${code}/actualCheckinAt`, new Date().toISOString());
   return getReservationByCode(code);
 }

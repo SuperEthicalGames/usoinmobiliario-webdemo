@@ -40,6 +40,7 @@ const AUTH_ERROR_STATUS = {
 const CLIENT_ERROR_CODES = new Set([
   'invalid', 'not-a-reservation', 'not-cash-payment', 'reservation-not-active',
   'reservation-not-confirmed', 'already-checked-in', 'not-checked-in-yet', 'already-checked-out',
+  'checkin-too-early',
 ]);
 function asyncHandler(fn) {
   return (req, res) => fn(req, res).catch((err) => {
