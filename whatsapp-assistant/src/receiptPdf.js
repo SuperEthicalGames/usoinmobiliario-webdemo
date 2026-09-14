@@ -10,13 +10,16 @@ const BRAND = { forest: '#23262b', clay: '#a5761c', ink: '#1a1d21', muted: '#6b6
 
 // Identidad legal fija del arrendador — un solo negocio, un solo arrendador, nunca varía por
 // contrato (a diferencia de los datos bancarios en settings/paymentInfo, que sí son editables
-// desde el panel). Extraído del contrato real de referencia (CONTRATO C351 PENSIÓN).
+// desde el panel). Nombre/NIT/matrícula extraídos del contrato real de referencia (CONTRATO C351
+// PENSIÓN); dirección tomada de la firma real de Carlos en un correo de comprobante de pago
+// real — "Laureles, Medellín" (usada en el resto del proyecto, ej. el pie de los correos de
+// emailService.js) es solo una referencia de barrio para marketing, no la dirección registrada.
 const LANDLORD = {
   name: 'Carlos Alberto Zapata Mesa',
   business: 'USOINMOBILIARIO',
   nit: '71687033-1',
   matricula: 'Matrícula de arrendador de vivienda urbana No. 0049/15',
-  address: 'Laureles, Medellín',
+  address: 'Circular 5 N.° 69-53, interior 300, Medellín, Colombia',
 };
 
 const METHOD_LABELS = { transferencia: 'Transferencia', efectivo: 'Efectivo', otro: 'Otro concepto' };
