@@ -422,10 +422,13 @@ router.post('/contracts/:code/payments', STAFF, asyncHandler(async (req, res) =>
 
   let emailResult = { sent: false };
   try {
-    const pdfBuffer = await generateContractReceiptPdf(contract, payment);
-    emailResult = await emailService.sendContractReceipt(contract, payment, pdfBuffer);
+    const [receiptPdfBuffer, contractPdfBuffer] = await Promise.all([
+      generateContractReceiptPdf(contract, payment),
+      generateContractDocumentPdf(contract),
+    ]);
+    emailResult = await emailService.sendContractReceipt(contract, payment, receiptPdfBuffer, contractPdfBuffer);
   } catch (err) {
-    console.error('[adminRoutes] No se pudo generar/enviar el recibo del abono:', err.message);
+    console.error('[adminRoutes] No se pudo generar/enviar el contrato+recibo del abono:', err.message);
   }
   const tenantPhone = (contract.tenants || []).find((t) => t.phone)?.phone;
   if (tenantPhone) {

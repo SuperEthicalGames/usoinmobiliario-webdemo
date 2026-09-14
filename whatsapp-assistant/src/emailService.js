@@ -476,11 +476,11 @@ function contractReceiptHtml(contract, payment, tenantName) {
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:${BRAND.card};border-radius:14px;overflow:hidden;">`
     + `<tr><td style="background:${BRAND.forest};padding:20px 28px;">`
     + `<div style="color:${BRAND.cream};font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:${BRAND.fontDisplay};">USO INMOBILIARIO</div>`
-    + `<div style="color:${BRAND.cream};font-size:20px;font-weight:700;margin-top:4px;font-family:${BRAND.fontDisplay};">Recibo de abono — contrato ${esc(contract.code)}</div>`
+    + `<div style="color:${BRAND.cream};font-size:20px;font-weight:700;margin-top:4px;font-family:${BRAND.fontDisplay};">Contrato y recibo de abono — ${esc(contract.code)}</div>`
     + `</td></tr>`
     + `<tr><td style="padding:24px 28px 8px;">`
     + `<p style="margin:0 0 14px;font-size:15px;">Hola, ${esc(tenantName)}.</p>`
-    + `<p style="margin:0 0 14px;font-size:14.5px;">Registramos tu abono del contrato ${esc(contract.code)} (${esc(contract.unitLabel)}). Adjuntamos el recibo N.° ${esc(payment.receiptNumber)} en PDF.</p>`
+    + `<p style="margin:0 0 14px;font-size:14.5px;">Registramos tu abono del contrato ${esc(contract.code)} (${esc(contract.unitLabel)}). Adjuntamos dos archivos en PDF: tu contrato de arrendamiento y el recibo N.° ${esc(payment.receiptNumber)} de este abono.</p>`
     + `</td></tr>`
     + `<tr><td style="padding:0 28px 24px;">`
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">`
@@ -501,21 +501,29 @@ function contractReceiptHtml(contract, payment, tenantName) {
 // PDFKit, mismo criterio de capas que el resto del archivo (esto solo arma y manda correos).
 // Mejor esfuerzo, igual que sendStatusUpdate: sin tenant.email no hay a quién mandarle nada, eso
 // no debe tumbar el registro del abono, que ya se guardó con éxito antes de llegar acá.
-async function sendContractReceipt(contract, payment, pdfBuffer) {
+//
+// Manda el contrato JUNTO con el recibo (dos adjuntos, un solo correo) — pedido explícito tras
+// ver que el correo real de Carlos (el .eml de referencia) siempre manda el contrato y el
+// comprobante de pago juntos, nunca por separado. `contractPdfBuffer` lo genera el caller igual
+// que `receiptPdfBuffer` (ver contractDocPdf.js/receiptPdf.js vía la ruta admin).
+async function sendContractReceipt(contract, payment, receiptPdfBuffer, contractPdfBuffer) {
   if (!isConfigured()) return { sent: false };
   const tenants = contract.tenants || [];
   const tenant = tenants.find((t) => t.email) || tenants[0];
   if (!tenant || !tenant.email) return { sent: false };
   const html = contractReceiptHtml(contract, payment, tenant.name);
-  const subject = `Recibo de abono — contrato ${contract.code} (N.° ${payment.receiptNumber})`;
+  const subject = `Contrato y recibo de abono — contrato ${contract.code} (N.° ${payment.receiptNumber})`;
   try {
     const info = await sendEmail({
       to: tenant.email, subject, html,
-      attachments: [{ filename: `recibo-${contract.code}-${payment.receiptNumber}.pdf`, content: pdfBuffer.toString('base64') }],
+      attachments: [
+        { filename: `contrato-${contract.code}.pdf`, content: contractPdfBuffer.toString('base64') },
+        { filename: `recibo-${contract.code}-${payment.receiptNumber}.pdf`, content: receiptPdfBuffer.toString('base64') },
+      ],
     });
     return { sent: true, messageId: info.messageId };
   } catch (err) {
-    console.error(`[emailService] No se pudo enviar recibo de abono a ${tenant.email}:`, err.message);
+    console.error(`[emailService] No se pudo enviar contrato+recibo de abono a ${tenant.email}:`, err.message);
     return { sent: false };
   }
 }
