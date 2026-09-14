@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const { drawHeaderLogo, addWatermarkToAllPages } = require('./pdfBranding');
 
 // Documento de CONTRATO real — a diferencia de receiptPdf.js (que genera el recibo de cada
 // ABONO), esto genera el contrato de arrendamiento en sí, una sola vez al crear el contrato.
@@ -116,9 +117,10 @@ function generateContractDocumentPdf(contract) {
     doc.on('error', reject);
 
     doc.rect(0, 0, doc.page.width, 86).fill(BRAND.forest);
-    doc.fillColor('#f8f4ea').font('Helvetica-Bold').fontSize(10).text('USOINMOBILIARIO', 56, 26, { characterSpacing: 1.5 });
-    doc.fontSize(16).text('Contrato de arrendamiento de vivienda urbana', 56, 42);
-    doc.font('Helvetica').fontSize(9).text(`Contrato N.° ${contract.code} · ${contract.unitLabel}${contract.roomCode ? ' · ' + contract.roomCode : ''}`, 56, 66);
+    drawHeaderLogo(doc, 56, 16, 54);
+    doc.fillColor('#f8f4ea').font('Helvetica-Bold').fontSize(10).text('USOINMOBILIARIO', 122, 26, { characterSpacing: 1.5 });
+    doc.fontSize(16).text('Contrato de arrendamiento de vivienda urbana', 122, 42);
+    doc.font('Helvetica').fontSize(9).text(`Contrato N.° ${contract.code} · ${contract.unitLabel}${contract.roomCode ? ' · ' + contract.roomCode : ''}`, 122, 66);
 
     doc.moveDown(2.5);
     doc.font('Helvetica').fontSize(9.5).fillColor(BRAND.ink).text(
@@ -160,6 +162,7 @@ function generateContractDocumentPdf(contract) {
     doc.moveDown(1.5);
     doc.fontSize(8).fillColor(BRAND.muted).text('Documento generado automáticamente por el panel administrativo de Uso Inmobiliario, a partir de la plantilla real del contrato de arrendamiento del negocio.', { align: 'center' });
 
+    addWatermarkToAllPages(doc);
     doc.end();
   });
 }

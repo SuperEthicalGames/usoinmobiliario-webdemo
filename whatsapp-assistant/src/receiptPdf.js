@@ -1,25 +1,31 @@
 const PDFDocument = require('pdfkit');
+const { drawHeaderLogo, addWatermarkToAllPages } = require('./pdfBranding');
+const { copAmountInWords } = require('./numberToWordsEs');
 
 // Recibo de abono de contrato — sección 5 del pedido nuevo ("nuevos datos sobre los contratos
 // reales... este contrato es enviado al correo"). Diseño propio en la identidad del proyecto
 // (grafito/dorado, mismos tonos que BRAND en emailService.js), NO una réplica pixel-perfecta de
 // la plantilla de Excel real que se mandó como referencia — pero SÍ con todos los mismos campos
 // legales/de negocio que trae esa factura real (canon, período, cada línea de pago por separado,
-// saldo pendiente, arrendatario(s), NIT/matrícula del arrendador).
+// saldo pendiente, arrendatario(s), NIT/matrícula/régimen tributario del arrendador, monto en
+// letras, y la cláusula de letra de cambio — ver más abajo el porqué de cada uno).
 const BRAND = { forest: '#23262b', clay: '#a5761c', ink: '#1a1d21', muted: '#6b6f76', line: '#d8d3c8' };
 
 // Identidad legal fija del arrendador — un solo negocio, un solo arrendador, nunca varía por
 // contrato (a diferencia de los datos bancarios en settings/paymentInfo, que sí son editables
-// desde el panel). Nombre/NIT/matrícula extraídos del contrato real de referencia (CONTRATO C351
-// PENSIÓN); dirección tomada de la firma real de Carlos en un correo de comprobante de pago
-// real — "Laureles, Medellín" (usada en el resto del proyecto, ej. el pie de los correos de
-// emailService.js) es solo una referencia de barrio para marketing, no la dirección registrada.
+// desde el panel). Todos estos campos, incluidos régimen/actividad económica, están tomados
+// directo de la factura real de referencia — no son decorativos: "Régimen Simplificado" y el
+// código CIIU de "Actividad económica" son la clasificación tributaria real bajo la que Carlos
+// factura este servicio ante la DIAN.
 const LANDLORD = {
   name: 'Carlos Alberto Zapata Mesa',
   business: 'USOINMOBILIARIO',
   nit: '71687033-1',
   matricula: 'Matrícula de arrendador de vivienda urbana No. 0049/15',
   address: 'Circular 5 N.° 69-53, interior 300, Medellín, Colombia',
+  regimen: 'Régimen Simplificado',
+  actividadEconomica: '6820 / 5519',
+  telefono: '(+57) 2304042 · 3136496615',
 };
 
 const METHOD_LABELS = { transferencia: 'Transferencia', efectivo: 'Efectivo', otro: 'Otro concepto' };
@@ -47,7 +53,7 @@ function row(doc, x, y, label, value, opts = {}) {
 // necesidad de guardarlo en ningún lado.
 function generateContractReceiptPdf(contract, payment) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -55,9 +61,10 @@ function generateContractReceiptPdf(contract, payment) {
 
     // --- Encabezado ---
     doc.rect(0, 0, doc.page.width, 90).fill(BRAND.forest);
-    doc.fillColor('#f8f4ea').font('Helvetica-Bold').fontSize(10).text('USOINMOBILIARIO', 50, 28, { characterSpacing: 1.5 });
-    doc.fontSize(18).text('Recibo de abono', 50, 44);
-    doc.font('Helvetica').fontSize(9).fillColor('#f8f4ea').text(`Recibo N.° ${payment.receiptNumber}`, 50, 68);
+    drawHeaderLogo(doc, 50, 18, 54);
+    doc.fillColor('#f8f4ea').font('Helvetica-Bold').fontSize(10).text('USOINMOBILIARIO', 116, 28, { characterSpacing: 1.5 });
+    doc.fontSize(18).text('Recibo de abono', 116, 44);
+    doc.font('Helvetica').fontSize(9).fillColor('#f8f4ea').text(`Recibo N.° ${payment.receiptNumber}`, 116, 68);
     doc.text(`Fecha: ${fmtDate(payment.date)}`, doc.page.width - 250, 68, { width: 200, align: 'right' });
 
     let y = 112;
@@ -65,9 +72,11 @@ function generateContractReceiptPdf(contract, payment) {
     y += 16;
     row(doc, 50, y, 'Nombre', LANDLORD.name); y += 14;
     row(doc, 50, y, 'Negocio', LANDLORD.business); y += 14;
-    row(doc, 50, y, 'NIT', LANDLORD.nit); y += 14;
+    row(doc, 50, y, 'NIT', `${LANDLORD.nit} · ${LANDLORD.regimen}`); y += 14;
+    row(doc, 50, y, 'Actividad económica', LANDLORD.actividadEconomica); y += 14;
     row(doc, 50, y, 'Matrícula', LANDLORD.matricula); y += 14;
-    row(doc, 50, y, 'Dirección', LANDLORD.address); y += 24;
+    row(doc, 50, y, 'Dirección', LANDLORD.address); y += 14;
+    row(doc, 50, y, 'Teléfono', LANDLORD.telefono); y += 24;
 
     doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor(BRAND.line).stroke(); y += 16;
 
@@ -87,6 +96,12 @@ function generateContractReceiptPdf(contract, payment) {
       y += 4;
       row(doc, 50, y, 'Deudor solidario', `${contract.jointDebtor.name} · CC ${contract.jointDebtor.documentId}`); y += 14;
     }
+    // "Recibido de" — quién hizo físicamente el depósito, igual campo que trae la factura real
+    // ("Depositante(s)"). Sin un campo propio para esto todavía, se asume el primer arrendatario
+    // (que es el caso real del documento de referencia) — ajustar acá si en el futuro se agrega
+    // un campo de depositante distinto del arrendatario.
+    const depositante = (contract.tenants || [])[0]?.name;
+    if (depositante) { row(doc, 50, y, 'Recibido de', depositante); y += 14; }
     y += 10;
 
     doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor(BRAND.line).stroke(); y += 16;
@@ -126,13 +141,38 @@ function generateContractReceiptPdf(contract, payment) {
     doc.font('Helvetica-Bold').fontSize(11).fillColor(payment.balanceAfter > 0 ? '#b3541e' : BRAND.clay);
     doc.text('Saldo pendiente del período', colX.desc, y, { width: 180 });
     doc.text(fmtCOP(payment.balanceAfter), colX.amount, y, { width: 100, align: 'right' });
+    y += 26;
+
+    // Monto en letras — requisito real de la factura de referencia ("La suma de: (SEISCIENTOS
+    // TREINTA MIL PESOS...)"), no decorativo: es lo que hace válido el documento como título
+    // valor bajo la cláusula de letra de cambio de abajo.
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(BRAND.ink)
+      .text(`La suma de: (${copAmountInWords(total)} M/L)`, 50, y, { width: doc.page.width - 100 });
+    y += 24;
+
+    // Firma — mismo bloque "Recibido por" de la factura real.
+    doc.font('Helvetica').fontSize(9).fillColor(BRAND.ink).text('Recibido por:', 50, y);
+    y += 30;
+    doc.moveTo(50, y).lineTo(220, y).strokeColor(BRAND.line).stroke();
+    doc.fontSize(8.5).fillColor(BRAND.muted).text(`${LANDLORD.name} · NIT ${LANDLORD.nit} · ${LANDLORD.regimen}`, 50, y + 4);
     y += 30;
 
+    // Cláusula legal real — el recibo/factura se asimila a una letra de cambio (título valor
+    // ejecutivo) según el art. 774 del Código Civil colombiano. Esto es lo que le da al
+    // documento fuerza legal para su cobro, tal como aparece en la factura real de Carlos — sin
+    // esta línea el PDF es solo un comprobante informal, no un título ejecutivo.
+    doc.font('Helvetica').fontSize(7.5).fillColor(BRAND.muted)
+      .text('Está factura se asimila en todos sus efectos legales a una letra de cambio según el art. 774 del C.C.', 50, y, { width: doc.page.width - 100 });
+    y += 14;
+    doc.text('Convenciones identificación ID: CE = cédula de extranjería. PEP = permiso de permanencia. PAS = pasaporte. CC = cédula de ciudadanía. NIT = número de identificación tributaria.', 50, y, { width: doc.page.width - 100 });
+    y += 20;
+
     doc.font('Helvetica').fontSize(8).fillColor(BRAND.muted)
-      .text('Uso Inmobiliario · Laureles, Medellín — recibo generado automáticamente por el panel administrativo.', 50, doc.page.height - 60, {
+      .text('Uso Inmobiliario — recibo generado automáticamente por el panel administrativo.', 50, doc.page.height - 65, {
         width: doc.page.width - 100, align: 'center',
       });
 
+    addWatermarkToAllPages(doc);
     doc.end();
   });
 }
