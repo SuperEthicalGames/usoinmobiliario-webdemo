@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const fs = require('fs');
 const config = require('../config');
-const { nightsBetween, nowEpochMs, todayIsoBogota, toIsoDate, parseIsoDate } = require('./dateUtil');
+const { nightsBetween, nowEpochMs, todayIsoBogota, toIsoDate, parseIsoDate, nowHourBogota, isValidIsoDate } = require('./dateUtil');
 
 // Único lugar que toca el SDK de Firebase Admin — mismo principio de capas que el proyecto
 // Unity (UI -> Services -> Repositories -> Firebase): businessTools.js llama estas funciones,
@@ -954,18 +954,47 @@ async function notifyAllStaff({ type, message, targetCode }) {
 
 // --- Contratos (arriendo formal — cubre estadías largas que van más allá de una reserva
 // corta con HOLD; el mismo apartamento puede tener reservas Y un contrato activo, ninguno de
-// los dos bloquea al otro automáticamente, es el admin quien concilia fechas a mano). ---
+// los dos bloquea al otro automáticamente, es el admin quien concilia fechas a mano).
+//
+// Remake completo (sección 5 del pedido nuevo) contra 3 documentos reales del negocio (contrato
+// de pensión C351, factura de abono de septiembre, comprobante por correo) — sin datos previos
+// que migrar (listContracts() confirmado vacío en producción antes de este cambio), así que el
+// modelo de un solo arrendatario que había antes se REEMPLAZA por el real: arrendatarios
+// solidarios (1 o más) + deudor solidario opcional + abonos con saldo corrido. ---
+
+const PAYMENT_TERMS = new Set(['semanal', 'quincenal', 'mensual']);
+const CONTRACT_PAYMENT_METHODS = new Set(['transferencia', 'efectivo', 'otro']);
+
+function sanitizeTenant(t) {
+  return {
+    name: String(t?.name || '').trim(),
+    documentId: String(t?.documentId || '').trim(),
+    phone: t?.phone ? String(t.phone).trim() : '',
+    email: t?.email ? String(t.email).trim() : '',
+  };
+}
 
 async function createContract(data) {
   const code = generateCode();
+  const tenants = (Array.isArray(data.tenants) ? data.tenants : [])
+    .map(sanitizeTenant)
+    .filter((t) => t.name && t.documentId);
+  if (tenants.length === 0) { const e = new Error('invalid'); e.code = 'invalid'; e.missingFields = ['arrendatarios']; throw e; }
+  const jointDebtorRaw = data.jointDebtor && String(data.jointDebtor.name || '').trim()
+    ? { name: String(data.jointDebtor.name).trim(), documentId: String(data.jointDebtor.documentId || '').trim() }
+    : null;
   const rec = {
     code,
     unitType: data.unitType, unitNum: data.unitNum, unitLabel: data.unitLabel,
-    tenantName: String(data.tenantName || '').trim(),
-    tenantPhone: String(data.tenantPhone || '').trim(),
-    tenantEmail: String(data.tenantEmail || '').trim(),
+    roomCode: String(data.roomCode || '').trim(),
+    tenants,
+    // jointDebtorRaw en null (no undefined) borra la clave al escribir en RTDB — al leer de
+    // vuelta simplemente no aparece, tratado como "sin deudor solidario" en todo lo demás.
+    jointDebtor: jointDebtorRaw,
+    maxOccupancy: Math.max(1, Number(data.maxOccupancy) || 1),
     startDate: data.startDate, endDate: data.endDate,
     monthlyRent: Number(data.monthlyRent) || 0,
+    paymentTerm: PAYMENT_TERMS.has(data.paymentTerm) ? data.paymentTerm : 'mensual',
     depositAmount: Number(data.depositAmount) || 0,
     documentUrl: data.documentUrl ? String(data.documentUrl).trim() : '',
     notes: data.notes ? String(data.notes).trim() : '',
@@ -978,13 +1007,89 @@ async function createContract(data) {
 }
 async function listContracts() {
   const snap = await dbGet('contracts');
-  return Object.values(snap.val() || {});
+  const raw = Object.values(snap.val() || {});
+  // RTDB no distingue "objeto vacío" de "nunca se escribió nada" — un contrato sin abonos
+  // todavía llega acá con `payments` ausente, no `{}`. Normalizado siempre a array ordenado por
+  // número de recibo para que el panel nunca tenga que repetir este chequeo.
+  return raw.map((c) => ({ ...c, payments: Object.values(c.payments || {}).sort((a, b) => a.receiptNumber - b.receiptNumber) }));
 }
 async function setContractStatus(code, status) {
   const snap = await dbGet(`contracts/${code}`);
   if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
   await dbSet(`contracts/${code}/status`, status);
   return { ...snap.val(), status };
+}
+
+// El único ejemplo real disponible (factura de sept 2026) es de término 'mensual': período =
+// mes calendario completo, canon íntegro como valor esperado de ese período. Para
+// 'quincenal'/'semanal' no hay un ejemplo real en los documentos usados para este diseño — se
+// prorratea el canon mensual (mitad / cuarta parte) sobre una ventana de 15/7 días anclada a la
+// fecha de inicio del contrato. Si el negocio maneja otra convención para esos dos términos,
+// ajustar acá (un solo lugar).
+function periodForContractPayment(contract, dateIso) {
+  if (contract.paymentTerm === 'mensual' || !contract.paymentTerm) {
+    const [y, m] = dateIso.split('-').map(Number);
+    const periodStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const periodEnd = toIsoDate(new Date(Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1)));
+    return { periodStart, periodEnd };
+  }
+  const spanDays = contract.paymentTerm === 'semanal' ? 7 : 15;
+  const spanMs = spanDays * 24 * 60 * 60 * 1000;
+  const start = parseIsoDate(contract.startDate);
+  const target = parseIsoDate(dateIso);
+  const periodIndex = Math.floor((target.getTime() - start.getTime()) / spanMs);
+  return {
+    periodStart: toIsoDate(new Date(start.getTime() + periodIndex * spanMs)),
+    periodEnd: toIsoDate(new Date(start.getTime() + (periodIndex + 1) * spanMs)),
+  };
+}
+function rentDueForContractPeriod(contract) {
+  if (contract.paymentTerm === 'semanal') return contract.monthlyRent / 4;
+  if (contract.paymentTerm === 'quincenal') return contract.monthlyRent / 2;
+  return contract.monthlyRent;
+}
+
+// Contador simple y global (todo el negocio, no por contrato) — mismo número que ya usa la
+// factura real ("Recibo/Factura N.° 00 3024"), un consecutivo de negocio, no algo por-contrato.
+// Mismo patrón de transacción atómica que withIdempotency: dos abonos registrados casi al mismo
+// tiempo (dos pestañas del panel abiertas) no pueden terminar con el mismo número.
+async function nextReceiptNumber() {
+  const result = await dbTransaction('contractCounters/nextReceiptNumber', (current) => (typeof current === 'number' ? current : 1) + 1);
+  return result.snapshot.val() - 1;
+}
+
+// Registra un abono — puerto directo de la factura real (líneas de pago separadas por método,
+// saldo pendiente corrido del período). Puramente de datos: NO manda correo ni WhatsApp (eso es
+// un efecto secundario que vive en adminRoutes.js, igual que notifyByEmail para reservas — este
+// archivo es solo la capa de datos, ver el comentario de arriba de "Acciones administrativas").
+async function addContractPayment(code, { lines, date }) {
+  const snap = await dbGet(`contracts/${code}`);
+  if (!snap.exists()) { const e = new Error('not-found'); e.code = 'not-found'; throw e; }
+  const contract = snap.val();
+  if (contract.status !== 'activo') { const e = new Error('contract-not-active'); e.code = 'contract-not-active'; throw e; }
+
+  const cleanLines = (Array.isArray(lines) ? lines : [])
+    .map((l) => ({
+      method: CONTRACT_PAYMENT_METHODS.has(l?.method) ? l.method : 'otro',
+      amount: Number(l?.amount) || 0,
+      description: l?.description ? String(l.description).trim() : '',
+    }))
+    .filter((l) => l.amount > 0 || l.description);
+  if (cleanLines.length === 0) { const e = new Error('invalid'); e.code = 'invalid'; e.missingFields = ['líneas de pago']; throw e; }
+
+  const payDate = isValidIsoDate(date) ? date : todayIsoBogota();
+  const { periodStart, periodEnd } = periodForContractPayment(contract, payDate);
+  const existingPayments = Object.values(contract.payments || {});
+  const paidThisPeriod = existingPayments
+    .filter((p) => p.periodStart === periodStart)
+    .reduce((sum, p) => sum + p.lines.reduce((s, l) => s + l.amount, 0), 0);
+  const newTotal = cleanLines.reduce((s, l) => s + l.amount, 0);
+  const balanceAfter = rentDueForContractPeriod(contract) - (paidThisPeriod + newTotal);
+
+  const receiptNumber = await nextReceiptNumber();
+  const payment = { receiptNumber, date: payDate, periodStart, periodEnd, lines: cleanLines, balanceAfter };
+  await dbSet(`contracts/${code}/payments/${receiptNumber}`, payment);
+  return { contract: { ...contract, code }, payment };
 }
 
 // --- Aseo (tareas de limpieza de turnover — entre huéspedes) ---
@@ -1070,9 +1175,16 @@ async function checkInReservation(code) {
   if (rec.actualCheckinAt) { const e = new Error('already-checked-in'); e.code = 'already-checked-in'; throw e; }
   // No antes de tiempo (bug real reportado: nada impedía marcar "en uso" días antes de que el
   // huésped llegara) — pero SÍ se permite después de la fecha planeada (una llegada tardía es
-  // normal, bloquearla del todo sería peor que el problema original).
-  if (rec.checkin && todayIsoBogota() < rec.checkin) {
-    const e = new Error('checkin-too-early'); e.code = 'checkin-too-early'; throw e;
+  // normal, bloquearla del todo sería peor que el problema original). El día exacto de check-in
+  // ADEMÁS exige que ya sean las 3:00 p.m. hora Bogotá (CHECK-IN 3:00 p.m., la misma hora que
+  // anuncia el sitio público) — un check-in un día después sigue sin restricción de hora.
+  if (rec.checkin) {
+    const todayIso = todayIsoBogota();
+    const tooEarlyDay = todayIso < rec.checkin;
+    const tooEarlyHour = todayIso === rec.checkin && nowHourBogota() < 15;
+    if (tooEarlyDay || tooEarlyHour) {
+      const e = new Error('checkin-too-early'); e.code = 'checkin-too-early'; throw e;
+    }
   }
   await dbSet(`${pathFor('reserva')}/${code}/actualCheckinAt`, new Date().toISOString());
   return getReservationByCode(code);
@@ -1241,6 +1353,7 @@ module.exports = {
   createContract,
   listContracts,
   setContractStatus,
+  addContractPayment,
   createCleaningTask,
   listCleaningTasks,
   getCleaningTaskByCode,

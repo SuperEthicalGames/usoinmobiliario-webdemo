@@ -25,14 +25,17 @@ function isConfigured() {
 // Único punto real de envío — reemplaza getTransporter()/sendMail() de nodemailer. Devuelve
 // {messageId} en éxito; lanza en fallo (mismo contrato que nodemailer.sendMail, así que los tres
 // call sites de abajo no tuvieron que cambiar su manejo de errores).
-async function sendEmail({ to, subject, html }) {
+// `attachments`: [{ filename, content }] con `content` en base64 — mismo formato que espera la
+// API de Resend (docs.resend.com/api-reference/emails/send-email#body-parameters), usado para
+// mandar el PDF del recibo de abono (sección 5 del pedido nuevo) sin depender de un link aparte.
+async function sendEmail({ to, subject, html, attachments }) {
   const res = await fetch(RESEND_API_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.email.resendApiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: config.email.resendFrom, to: [to], subject, html }),
+    body: JSON.stringify({ from: config.email.resendFrom, to: [to], subject, html, ...(attachments ? { attachments } : {}) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -378,6 +381,101 @@ function sendReservationCancelled(rec, lang) {
     bodyEn: "Your booking was cancelled. If this wasn't expected or you'd like to book another date, message us on WhatsApp.",
   }, lang);
 }
+// Las 3 de acá abajo cubren record.confirm/reject/complete (mismo tipo de evento que
+// pago-verificado/rechazado y cancelación, arriba — antes NO mandaban nada, único hueco real en
+// "cualquier cambio de estado" del pedido). Vale tanto para reservas como para citas
+// (setReservationStatus ya trata ambas por igual) — bodyEs/En genéricos, sin mencionar
+// check-in/checkout que no aplica a una cita.
+function sendReservationConfirmed(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `Reserva confirmada — ${rec.code}`, subjectEn: `Booking confirmed — ${rec.code}`,
+    titleEs: 'Reserva confirmada', titleEn: 'Booking confirmed',
+    bodyEs: rec.type === 'cita'
+      ? 'Confirmamos tu cita. Te esperamos en la fecha y hora acordadas.'
+      : 'Confirmamos tu reserva. Ya no depende de ningún pago pendiente — te esperamos en las fechas acordadas.',
+    bodyEn: rec.type === 'cita'
+      ? "Your appointment is confirmed. We'll see you at the agreed date and time."
+      : "Your booking is confirmed. It no longer depends on any pending payment — we'll see you on the agreed dates.",
+  }, lang);
+}
+function sendReservationRejected(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `Reserva rechazada — ${rec.code}`, subjectEn: `Booking rejected — ${rec.code}`,
+    titleEs: 'Reserva rechazada', titleEn: 'Booking rejected',
+    bodyEs: 'No pudimos aceptar esta reserva/cita. Escríbenos por WhatsApp si quieres saber por qué o buscar otra fecha.',
+    bodyEn: "We couldn't accept this booking/appointment. Message us on WhatsApp if you'd like to know why or find another date.",
+  }, lang);
+}
+function sendReservationCompleted(rec, lang) {
+  return sendStatusUpdate(rec, {
+    subjectEs: `¡Gracias por tu estadía! — ${rec.code}`, subjectEn: `Thanks for staying with us! — ${rec.code}`,
+    titleEs: 'Estadía completada', titleEn: 'Stay completed',
+    bodyEs: 'Marcamos tu reserva como completada. Gracias por elegirnos — esperamos verte de nuevo pronto.',
+    bodyEn: "We've marked your booking as completed. Thanks for choosing us — we hope to see you again soon.",
+  }, lang);
+}
+
+const CONTRACT_METHOD_LABELS = { transferencia: 'Transferencia', efectivo: 'Efectivo', otro: 'Otro concepto' };
+
+// Correo del recibo de abono de un CONTRATO (sección 5 del pedido nuevo: "este contrato es
+// enviado al correo") — plantilla propia, no un puerto de statusUpdateHtml, porque un Contract
+// no es un ReservationRecord (no tiene rec.code+rec.name+rec.unitLabel+link "ver mi reserva" que
+// esa plantilla asume). Solo español: los contratos de arriendo largo son 100% en español, a
+// diferencia de las reservas cortas que sí atienden turistas en inglés.
+function contractReceiptHtml(contract, payment, tenantName) {
+  const total = (payment.lines || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const linesHtml = (payment.lines || []).map((l) => ''
+    + `<tr><td style="padding:6px 0;color:${BRAND.muted};">${esc(CONTRACT_METHOD_LABELS[l.method] || l.method)}${l.description ? ` — ${esc(l.description)}` : ''}</td>`
+    + `<td style="padding:6px 0;text-align:right;font-weight:700;color:${BRAND.ink};">${esc(fmtCOP(l.amount))}</td></tr>`
+  ).join('');
+  return ''
+    + `<div style="background:${BRAND.paper2};padding:24px 12px;font-family:${BRAND.fontBody};color:${BRAND.ink};">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:${BRAND.card};border-radius:14px;overflow:hidden;">`
+    + `<tr><td style="background:${BRAND.forest};padding:20px 28px;">`
+    + `<div style="color:${BRAND.cream};font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:${BRAND.fontDisplay};">USO INMOBILIARIO</div>`
+    + `<div style="color:${BRAND.cream};font-size:20px;font-weight:700;margin-top:4px;font-family:${BRAND.fontDisplay};">Recibo de abono — contrato ${esc(contract.code)}</div>`
+    + `</td></tr>`
+    + `<tr><td style="padding:24px 28px 8px;">`
+    + `<p style="margin:0 0 14px;font-size:15px;">Hola, ${esc(tenantName)}.</p>`
+    + `<p style="margin:0 0 14px;font-size:14.5px;">Registramos tu abono del contrato ${esc(contract.code)} (${esc(contract.unitLabel)}). Adjuntamos el recibo N.° ${esc(payment.receiptNumber)} en PDF.</p>`
+    + `</td></tr>`
+    + `<tr><td style="padding:0 28px 24px;">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">`
+    + `<tr><td style="padding:6px 0;color:${BRAND.muted};">Período</td><td style="padding:6px 0;text-align:right;color:${BRAND.ink};">${esc(fmtLongDate(payment.periodStart, 'es'))} — ${esc(fmtLongDate(payment.periodEnd, 'es'))}</td></tr>`
+    + linesHtml
+    + `<tr><td style="padding:6px 0;color:${BRAND.muted};font-weight:700;">Total abono</td><td style="padding:6px 0;text-align:right;font-weight:700;color:${BRAND.ink};">${esc(fmtCOP(total))}</td></tr>`
+    + `<tr><td style="padding:6px 0;color:${BRAND.muted};font-weight:700;">Saldo pendiente</td><td style="padding:6px 0;text-align:right;font-weight:700;color:${BRAND.clay};">${esc(fmtCOP(payment.balanceAfter))}</td></tr>`
+    + `</table>`
+    + `</td></tr>`
+    + `<tr><td style="padding:16px 28px;background:${BRAND.paper2};text-align:center;font-size:12px;color:${BRAND.muted};">`
+    + `Uso Inmobiliario · Laureles, Medellín`
+    + `</td></tr>`
+    + `</table>`
+    + `</div>`;
+}
+
+// `pdfBuffer` lo genera el caller (receiptPdf.js, vía la ruta admin) — emailService no conoce
+// PDFKit, mismo criterio de capas que el resto del archivo (esto solo arma y manda correos).
+// Mejor esfuerzo, igual que sendStatusUpdate: sin tenant.email no hay a quién mandarle nada, eso
+// no debe tumbar el registro del abono, que ya se guardó con éxito antes de llegar acá.
+async function sendContractReceipt(contract, payment, pdfBuffer) {
+  if (!isConfigured()) return { sent: false };
+  const tenants = contract.tenants || [];
+  const tenant = tenants.find((t) => t.email) || tenants[0];
+  if (!tenant || !tenant.email) return { sent: false };
+  const html = contractReceiptHtml(contract, payment, tenant.name);
+  const subject = `Recibo de abono — contrato ${contract.code} (N.° ${payment.receiptNumber})`;
+  try {
+    const info = await sendEmail({
+      to: tenant.email, subject, html,
+      attachments: [{ filename: `recibo-${contract.code}-${payment.receiptNumber}.pdf`, content: pdfBuffer.toString('base64') }],
+    });
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[emailService] No se pudo enviar recibo de abono a ${tenant.email}:`, err.message);
+    return { sent: false };
+  }
+}
 
 // Límite básico por código — defensa adicional detrás de la verificación de correo de abajo.
 // En memoria (se reinicia si el proceso se reinicia), igual que conversationStore.js —
@@ -483,4 +581,6 @@ module.exports = {
   sendReservationConfirmation, reservationCreatedHtml, reservationDisplayStatus, isConfigured,
   sendPaymentVerified, sendPaymentRejected, sendReservationCancelled, sendPaymentReported,
   sendVisitConfirmation, visitCreatedHtml, visitDisplayStatus,
+  sendReservationConfirmed, sendReservationRejected, sendReservationCompleted,
+  sendContractReceipt,
 };

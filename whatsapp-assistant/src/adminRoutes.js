@@ -3,6 +3,8 @@ const fb = require('./firebase');
 const pricing = require('./pricing');
 const emailService = require('./emailService');
 const reservationBuilder = require('./reservationBuilder');
+const whatsapp = require('./whatsapp');
+const { generateContractReceiptPdf } = require('./receiptPdf');
 const { requireSuperAdmin, requireRole } = require('./adminAuth');
 
 // Staff operativo (dueño incluido) — todo lo que NO es exclusivamente para tareas de un
@@ -40,7 +42,7 @@ const AUTH_ERROR_STATUS = {
 const CLIENT_ERROR_CODES = new Set([
   'invalid', 'not-a-reservation', 'not-cash-payment', 'reservation-not-active',
   'reservation-not-confirmed', 'already-checked-in', 'not-checked-in-yet', 'already-checked-out',
-  'checkin-too-early',
+  'checkin-too-early', 'contract-not-active',
 ]);
 function asyncHandler(fn) {
   return (req, res) => fn(req, res).catch((err) => {
@@ -63,6 +65,41 @@ function notifyByEmail(sendFn, rec) {
   if (!rec) return;
   Promise.resolve(sendFn(rec, 'es')).catch((err) => console.error('[adminRoutes] Error enviando correo de actualización:', err.message));
 }
+
+// Best-effort — normaliza a solo dígitos y asume Colombia (+57) cuando el cliente lo escribió
+// sin indicativo (celular local de 10 dígitos, empieza en 3) — el negocio solo opera acá, mismo
+// criterio ya usado en el resto del proyecto. rec.phone viene tal cual lo tipeó el cliente en el
+// formulario público (validators.isValidPhone solo exige >=7 dígitos, no fuerza un formato).
+function toWhatsAppId(rawPhone) {
+  const digits = String(rawPhone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return digits.length === 10 ? `57${digits}` : digits;
+}
+
+// WhatsApp de actualización de estado, SIEMPRE junto al correo (nunca en su reemplazo) y SIEMPRE
+// fire-and-forget igual que notifyByEmail. Es best-effort de verdad: la API de WhatsApp Cloud
+// solo deja iniciar un mensaje de texto libre dentro de las 24h desde el último mensaje DEL
+// cliente al bot — fuera de esa ventana, Meta exige una plantilla pre-aprobada (trámite manual
+// en Meta Business Manager, fuera de alcance de este cambio). Si falla o cae fuera de ventana,
+// whatsapp.sendTextMessage ya loguea y no debe tumbar la acción principal.
+function notifyByWhatsApp(rec, textEs) {
+  if (!rec) return;
+  const to = toWhatsAppId(rec.phone);
+  if (!to) return;
+  Promise.resolve(whatsapp.sendTextMessage(to, textEs)).catch((err) => console.error('[adminRoutes] Error enviando WhatsApp de actualización:', err.message));
+}
+function fmtCOPForWhatsApp(n) {
+  return '$' + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+const STATUS_WHATSAPP_TEXT = {
+  confirm: (rec) => (rec.type === 'cita'
+    ? `✅ Tu cita ${rec.code} fue confirmada. ¡Te esperamos!`
+    : `✅ Tu reserva ${rec.code} fue confirmada. Ya no depende de ningún pago pendiente — te esperamos en las fechas acordadas.`),
+  reject: (rec) => `❌ No pudimos aceptar tu reserva/cita ${rec.code}. Escríbenos si quieres saber por qué o buscar otra fecha.`,
+  cancel: (rec) => `🚫 Tu reserva ${rec.code} fue cancelada. Si no lo esperabas o quieres agendar otra fecha, cuéntanos.`,
+  complete: (rec) => `🙏 Marcamos tu reserva ${rec.code} como completada. ¡Gracias por elegirnos!`,
+};
 
 // Bitácora — se llama DESPUÉS de que la acción real ya se ejecutó con éxito (nunca antes, nunca
 // si la acción falló). fb.logAdminAction ya se traga sus propios errores, así que un fallo de
@@ -201,12 +238,14 @@ router.post('/records/:code/check-in', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.checkInReservation(code);
   await logAction(req, 'reservation.check_in', code);
+  notifyByWhatsApp(result, `🔑 Registramos tu check-in para la reserva ${result.code}. ¡Bienvenido!`);
   res.json(result);
 }));
 router.post('/records/:code/check-out', STAFF, asyncHandler(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const result = await fb.checkOutReservation(code);
   await logAction(req, 'reservation.check_out', code);
+  notifyByWhatsApp(result, `👋 Registramos tu check-out para la reserva ${result.code}. ¡Gracias por tu visita!`);
   res.json(result);
 }));
 
@@ -218,14 +257,24 @@ const STATUS_ACTIONS = {
   cancel: fb.cancelReservation,
   complete: fb.completeReservation,
 };
+// Correo por cada una de las 4 acciones (antes solo cancel lo hacía) — "cualquier cambio de
+// estado" del pedido nuevo, no solo cancelación.
+const STATUS_EMAIL_FN = {
+  confirm: emailService.sendReservationConfirmed,
+  reject: emailService.sendReservationRejected,
+  cancel: emailService.sendReservationCancelled,
+  complete: emailService.sendReservationCompleted,
+};
 router.post('/records/:code/:action', STAFF, asyncHandler(async (req, res) => {
-  const fn = STATUS_ACTIONS[req.params.action];
+  const { action } = req.params;
+  const fn = STATUS_ACTIONS[action];
   if (!fn) return res.status(400).json({ error: 'invalid-action' });
   const code = req.params.code.toUpperCase();
   const updated = await fn(code);
   if (!updated) return res.status(404).json({ error: 'not-found' });
-  await logAction(req, `record.${req.params.action}`, code);
-  if (req.params.action === 'cancel' && updated.type === 'reserva') notifyByEmail(emailService.sendReservationCancelled, updated);
+  await logAction(req, `record.${action}`, code);
+  notifyByEmail(STATUS_EMAIL_FN[action], updated);
+  notifyByWhatsApp(updated, STATUS_WHATSAPP_TEXT[action](updated));
   res.json(updated);
 }));
 
@@ -295,6 +344,7 @@ router.post('/payments/:code/verify', STAFF, asyncHandler(async (req, res) => {
   const result = await fb.verifyPayment(code);
   await logAction(req, 'payment.verify', code);
   notifyByEmail(emailService.sendPaymentVerified, result);
+  notifyByWhatsApp(result, `✅ Confirmamos tu pago de la reserva ${result.code}. Sigue el proceso normal de confirmación — te avisamos en cuanto quede confirmada.`);
   res.json(result);
 }));
 router.post('/payments/:code/reject', STAFF, asyncHandler(async (req, res) => {
@@ -302,6 +352,7 @@ router.post('/payments/:code/reject', STAFF, asyncHandler(async (req, res) => {
   const result = await fb.rejectPayment(code);
   await logAction(req, 'payment.reject', code);
   notifyByEmail(emailService.sendPaymentRejected, result);
+  notifyByWhatsApp(result, `⚠️ No pudimos verificar el pago reportado para tu reserva ${result.code}. Escríbenos por acá para resolverlo.`);
   res.json(result);
 }));
 router.post('/payments/:code/register-cash', STAFF, asyncHandler(async (req, res) => {
@@ -311,17 +362,18 @@ router.post('/payments/:code/register-cash', STAFF, asyncHandler(async (req, res
   res.json(result);
 }));
 
-// --- Contratos ---
+// --- Contratos (remake completo — sección 5 del pedido nuevo, ver el comentario grande arriba
+// de la sección de Contratos en firebase.js para el porqué del modelo) ---
 router.get('/contracts', STAFF, asyncHandler(async (_req, res) => {
   res.json(await fb.listContracts());
 }));
 router.post('/contracts', STAFF, asyncHandler(async (req, res) => {
-  const { unitType, unitNum, unitLabel, tenantName, startDate, endDate, monthlyRent } = req.body || {};
+  const { unitType, unitNum, unitLabel, tenants, startDate, endDate, monthlyRent } = req.body || {};
   const missing = [];
   if (!unitType || !unitNum) missing.push('apartamento');
-  if (!tenantName || !String(tenantName).trim()) missing.push('nombre del inquilino');
+  if (!Array.isArray(tenants) || tenants.filter((t) => t?.name && t?.documentId).length === 0) missing.push('arrendatario(s)');
   if (!startDate || !endDate) missing.push('fecha de inicio/fin');
-  if (!monthlyRent || Number(monthlyRent) <= 0) missing.push('renta mensual');
+  if (!monthlyRent || Number(monthlyRent) <= 0) missing.push('renta mensual (canon)');
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createContract({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, createdBy: req.adminUser.email });
   await logAction(req, 'contract.create', created.code, { unitType, unitNum });
@@ -335,6 +387,50 @@ router.post('/contracts/:code/status', STAFF, asyncHandler(async (req, res) => {
   const result = await fb.setContractStatus(code, status);
   await logAction(req, 'contract.set_status', code, { status });
   res.json(result);
+}));
+
+// Registrar un abono — a diferencia de las demás acciones de este archivo, ESTA sí espera a que
+// el correo con el PDF adjunto termine de intentar mandarse antes de responder (no es
+// fire-and-forget como notifyByEmail): el PDF hay que generarlo síncronamente para adjuntarlo, y
+// como ya estamos ahí, más vale confirmarle al panel si el correo salió o no en vez de dejarlo
+// adivinando. Un fallo de correo/WhatsApp NUNCA revierte el abono ya guardado — eso ya pasó con
+// éxito antes de intentar notificar, mismo criterio de "la acción real nunca depende del envío"
+// del resto del archivo.
+router.post('/contracts/:code/payments', STAFF, asyncHandler(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { lines, date } = req.body || {};
+  const { contract, payment } = await fb.addContractPayment(code, { lines, date });
+  await logAction(req, 'contract.add_payment', code, { receiptNumber: payment.receiptNumber });
+
+  let emailResult = { sent: false };
+  try {
+    const pdfBuffer = await generateContractReceiptPdf(contract, payment);
+    emailResult = await emailService.sendContractReceipt(contract, payment, pdfBuffer);
+  } catch (err) {
+    console.error('[adminRoutes] No se pudo generar/enviar el recibo del abono:', err.message);
+  }
+  const tenantPhone = (contract.tenants || []).find((t) => t.phone)?.phone;
+  if (tenantPhone) {
+    notifyByWhatsApp({ phone: tenantPhone, code: contract.code },
+      `🧾 Registramos tu abono del contrato ${contract.code} — recibo N.° ${payment.receiptNumber}. Saldo pendiente del período: ${fmtCOPForWhatsApp(payment.balanceAfter)}.`);
+  }
+  res.status(201).json({ contract, payment, emailSent: emailResult.sent });
+}));
+
+// Descarga bajo demanda — el PDF nunca se guarda, se regenera siempre a partir de los mismos
+// datos ya persistidos del contrato/abono (mismo criterio que el resto del proyecto: nunca
+// duplicar una fuente de verdad que ya existe en Firebase).
+router.get('/contracts/:code/payments/:receiptNumber/pdf', STAFF, asyncHandler(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const contracts = await fb.listContracts();
+  const contract = contracts.find((c) => c.code === code);
+  if (!contract) return res.status(404).json({ error: 'not-found' });
+  const payment = (contract.payments || []).find((p) => String(p.receiptNumber) === req.params.receiptNumber);
+  if (!payment) return res.status(404).json({ error: 'not-found' });
+  const pdfBuffer = await generateContractReceiptPdf(contract, payment);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="recibo-${contract.code}-${payment.receiptNumber}.pdf"`);
+  res.send(pdfBuffer);
 }));
 
 // Un empleado solo ve/actúa sobre lo que se le asignó (Least Privilege, sección 4 del pedido);

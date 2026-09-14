@@ -48,4 +48,12 @@ function nowEpochMs() {
   return Date.now();
 }
 
-module.exports = { parseIsoDate, toIsoDate, nightsBetween, isValidIsoDate, todayIsoBogota, nowEpochMs };
+// Hora actual en Bogotá (0-23.999...) — mismo offset fijo de arriba. Usado para el chequeo de
+// check-in puntual: el sitio público anuncia CHECK-IN 3:00 p.m. como la hora real de negocio, así
+// que el día de check-in por sí solo no basta, también hace falta que ya sean las 3pm o después.
+function nowHourBogota() {
+  const nowBogota = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  return nowBogota.getUTCHours() + nowBogota.getUTCMinutes() / 60;
+}
+
+module.exports = { parseIsoDate, toIsoDate, nightsBetween, isValidIsoDate, todayIsoBogota, nowEpochMs, nowHourBogota };
