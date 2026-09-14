@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const fs = require('fs');
 const config = require('../config');
-const { nightsBetween, nowEpochMs, todayIsoBogota } = require('./dateUtil');
+const { nightsBetween, nowEpochMs, todayIsoBogota, toIsoDate, parseIsoDate } = require('./dateUtil');
 
 // Único lugar que toca el SDK de Firebase Admin — mismo principio de capas que el proyecto
 // Unity (UI -> Services -> Repositories -> Firebase): businessTools.js llama estas funciones,
@@ -718,6 +718,10 @@ async function getDashboardSummary() {
     pendingReservations: 0, confirmedReservations: 0,
     activeHolds: 0, pendingPaymentVerifications: 0,
     upcomingVisits: [],
+    // Sección "Operación" (2026-09-14) — todo reusa datos/listas que ya existían para sus
+    // propias pantallas (Pagos/Aseo/Mantenimiento/Contratos/Apartamentos), esto solo los cuenta.
+    apartmentsNeedingRealPhotos: 0, pendingCashPayments: 0,
+    cleaningPending: 0, maintenanceOpen: 0, contractsExpiringSoon: 0,
   };
   const todayIso = todayIsoBogota();
 
@@ -728,13 +732,23 @@ async function getDashboardSummary() {
       if (effective === 'disponible') summary.availableCount++;
       else if (effective === 'en-uso') summary.inUseCount++;
       else if (effective === 'reservado') summary.reservedCount++;
+      // "Necesita fotos reales" = tiene ambientes pero NINGUNO tiene todavía una foto https
+      // real (Cloudinary) — las fotos de vista previa copiadas el 2026-09-14 viven como ruta
+      // relativa `media/...`. En cuanto se suba UNA foto real a cualquier ambiente, deja de
+      // contar acá aunque falten las demás (evita que "a medias" quede pendiente para siempre).
+      const rooms = apt.rooms || [];
+      if (rooms.length > 0 && !rooms.some((r) => /^https:\/\//.test(r.img || ''))) {
+        summary.apartmentsNeedingRealPhotos++;
+      }
     }
   } catch (err) {
     console.error('[firebase] getDashboardSummary: no se pudieron cargar apartamentos', err);
   }
 
+  let reservationsForCash = [];
   try {
     const reservations = await listReservations();
+    reservationsForCash = reservations;
     const nowMs = nowEpochMs();
     for (const r of reservations) {
       if (r.status === 'pendiente') summary.pendingReservations++;
@@ -766,6 +780,32 @@ async function getDashboardSummary() {
       .slice(0, 10);
   } catch (err) {
     console.error('[firebase] getDashboardSummary: no se pudieron cargar visitas', err);
+  }
+
+  // Mismo criterio que isPendingCash en el panel (Payments.tsx) — reusa la lista de reservas ya
+  // cargada arriba en vez de pedirla de nuevo.
+  try {
+    for (const r of reservationsForCash) {
+      if (r.type === 'reserva' && r.paymentMethod === 'cash' && r.paymentStatus === 'none'
+        && r.status !== 'rechazada' && r.status !== 'cancelada') {
+        summary.pendingCashPayments++;
+      }
+    }
+  } catch (err) {
+    console.error('[firebase] getDashboardSummary: no se pudo calcular efectivo pendiente', err);
+  }
+
+  try {
+    const [cleaning, maintenance, contracts] = await Promise.all([
+      listCleaningTasks(), listMaintenanceTickets(), listContracts(),
+    ]);
+    summary.cleaningPending = cleaning.filter((t) => t.status === 'pendiente').length;
+    summary.maintenanceOpen = maintenance.filter((t) => t.status !== 'resuelto').length;
+    const in30Days = toIsoDate(new Date(parseIsoDate(todayIso).getTime() + 30 * 24 * 60 * 60 * 1000));
+    summary.contractsExpiringSoon = contracts.filter((c) =>
+      c.status === 'activo' && c.endDate && c.endDate >= todayIso && c.endDate <= in30Days).length;
+  } catch (err) {
+    console.error('[firebase] getDashboardSummary: no se pudo cargar aseo/mantenimiento/contratos', err);
   }
 
   return summary;
