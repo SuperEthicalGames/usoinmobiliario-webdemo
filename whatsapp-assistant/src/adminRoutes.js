@@ -5,6 +5,7 @@ const emailService = require('./emailService');
 const reservationBuilder = require('./reservationBuilder');
 const whatsapp = require('./whatsapp');
 const { generateContractReceiptPdf } = require('./receiptPdf');
+const { generateContractDocumentPdf } = require('./contractDocPdf');
 const { requireSuperAdmin, requireRole } = require('./adminAuth');
 
 // Staff operativo (dueño incluido) — todo lo que NO es exclusivamente para tareas de un
@@ -377,7 +378,24 @@ router.post('/contracts', STAFF, asyncHandler(async (req, res) => {
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createContract({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, createdBy: req.adminUser.email });
   await logAction(req, 'contract.create', created.code, { unitType, unitNum });
-  res.status(201).json(created);
+
+  // Correo con el CONTRATO real (documento legal completo, ver contractDocPdf.js) — se manda una
+  // sola vez, al crearlo, distinto del recibo de cada abono (ese se manda en /contracts/:code/
+  // payments). Igual que el resto de este archivo: un fallo acá nunca revierte el contrato ya
+  // creado, que es la acción real y ya tuvo éxito.
+  let documentEmailSent = false;
+  try {
+    const pdfBuffer = await generateContractDocumentPdf(created);
+    documentEmailSent = (await emailService.sendContractDocument(created, pdfBuffer)).sent;
+  } catch (err) {
+    console.error('[adminRoutes] No se pudo generar/enviar el documento del contrato:', err.message);
+  }
+  const tenantPhone = (created.tenants || []).find((t) => t.phone)?.phone;
+  if (tenantPhone) {
+    notifyByWhatsApp({ phone: tenantPhone, code: created.code },
+      `📄 Registramos tu contrato ${created.code} — ${created.unitLabel}. Te enviamos el documento completo por correo.`);
+  }
+  res.status(201).json({ ...created, documentEmailSent });
 }));
 const CONTRACT_STATUSES = new Set(['activo', 'finalizado', 'cancelado']);
 router.post('/contracts/:code/status', STAFF, asyncHandler(async (req, res) => {
@@ -430,6 +448,19 @@ router.get('/contracts/:code/payments/:receiptNumber/pdf', STAFF, asyncHandler(a
   const pdfBuffer = await generateContractReceiptPdf(contract, payment);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="recibo-${contract.code}-${payment.receiptNumber}.pdf"`);
+  res.send(pdfBuffer);
+}));
+
+// El documento del contrato en sí (no un abono) — mismo criterio de "nunca se guarda, se
+// regenera on-demand" que el recibo de arriba.
+router.get('/contracts/:code/document/pdf', STAFF, asyncHandler(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const contracts = await fb.listContracts();
+  const contract = contracts.find((c) => c.code === code);
+  if (!contract) return res.status(404).json({ error: 'not-found' });
+  const pdfBuffer = await generateContractDocumentPdf(contract);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="contrato-${contract.code}.pdf"`);
   res.send(pdfBuffer);
 }));
 

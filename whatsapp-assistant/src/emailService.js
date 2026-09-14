@@ -417,6 +417,49 @@ function sendReservationCompleted(rec, lang) {
 
 const CONTRACT_METHOD_LABELS = { transferencia: 'Transferencia', efectivo: 'Efectivo', otro: 'Otro concepto' };
 
+// Correo del CONTRATO en sí (documento legal completo, ver contractDocPdf.js) — se manda UNA
+// vez al crear el contrato, distinto del recibo de cada abono de abajo. Pedido explícito tras la
+// primera versión: "el correo del contrato no tiene el contrato como el original de carlos".
+function contractDocumentHtml(contract, tenantName) {
+  return ''
+    + `<div style="background:${BRAND.paper2};padding:24px 12px;font-family:${BRAND.fontBody};color:${BRAND.ink};">`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:${BRAND.card};border-radius:14px;overflow:hidden;">`
+    + `<tr><td style="background:${BRAND.forest};padding:20px 28px;">`
+    + `<div style="color:${BRAND.cream};font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:${BRAND.fontDisplay};">USO INMOBILIARIO</div>`
+    + `<div style="color:${BRAND.cream};font-size:20px;font-weight:700;margin-top:4px;font-family:${BRAND.fontDisplay};">Contrato de arrendamiento — ${esc(contract.code)}</div>`
+    + `</td></tr>`
+    + `<tr><td style="padding:24px 28px 8px;">`
+    + `<p style="margin:0 0 14px;font-size:15px;">Hola, ${esc(tenantName)}.</p>`
+    + `<p style="margin:0 0 14px;font-size:14.5px;">Adjuntamos el contrato de arrendamiento de ${esc(contract.unitLabel)} (contrato ${esc(contract.code)}), vigente del ${esc(fmtLongDate(contract.startDate, 'es'))} al ${esc(fmtLongDate(contract.endDate, 'es'))}. Consérvalo — es el documento que rige el arriendo.</p>`
+    + `</td></tr>`
+    + `<tr><td style="padding:16px 28px;background:${BRAND.paper2};text-align:center;font-size:12px;color:${BRAND.muted};">`
+    + `Uso Inmobiliario · Laureles, Medellín`
+    + `</td></tr>`
+    + `</table>`
+    + `</div>`;
+}
+
+// Mejor esfuerzo, mismo criterio que sendContractReceipt de abajo: el PDF ya lo generó el
+// caller, esto solo arma y manda el correo, sin tumbar la creación del contrato si falla.
+async function sendContractDocument(contract, pdfBuffer) {
+  if (!isConfigured()) return { sent: false };
+  const tenants = contract.tenants || [];
+  const tenant = tenants.find((t) => t.email) || tenants[0];
+  if (!tenant || !tenant.email) return { sent: false };
+  const html = contractDocumentHtml(contract, tenant.name);
+  const subject = `Contrato de arrendamiento — ${contract.code} (${contract.unitLabel})`;
+  try {
+    const info = await sendEmail({
+      to: tenant.email, subject, html,
+      attachments: [{ filename: `contrato-${contract.code}.pdf`, content: pdfBuffer.toString('base64') }],
+    });
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[emailService] No se pudo enviar el contrato a ${tenant.email}:`, err.message);
+    return { sent: false };
+  }
+}
+
 // Correo del recibo de abono de un CONTRATO (sección 5 del pedido nuevo: "este contrato es
 // enviado al correo") — plantilla propia, no un puerto de statusUpdateHtml, porque un Contract
 // no es un ReservationRecord (no tiene rec.code+rec.name+rec.unitLabel+link "ver mi reserva" que
@@ -583,4 +626,5 @@ module.exports = {
   sendVisitConfirmation, visitCreatedHtml, visitDisplayStatus,
   sendReservationConfirmed, sendReservationRejected, sendReservationCompleted,
   sendContractReceipt,
+  sendContractDocument,
 };
