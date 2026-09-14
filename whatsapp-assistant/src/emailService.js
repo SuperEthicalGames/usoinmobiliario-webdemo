@@ -473,7 +473,7 @@ async function sendContractReceipt(contract, payment, pdfBuffer) {
     return { sent: true, messageId: info.messageId };
   } catch (err) {
     console.error(`[emailService] No se pudo enviar recibo de abono a ${tenant.email}:`, err.message);
-    return { sent: false, error: err.message };
+    return { sent: false };
   }
 }
 
