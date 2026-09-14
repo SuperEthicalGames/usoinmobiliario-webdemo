@@ -276,6 +276,14 @@ app.post('/reservations', allowSiteOrigin, reservationLimiter, async (req, res) 
       const rec = await reservationBuilder.buildReservationRecord(req.body || {});
       return firebase.createReservation(rec);
     });
+    // Fire-and-forget (mismo criterio que notifyByEmail más abajo) — el dueño/admins reciben
+    // esto como notificación push real aunque no tengan el panel abierto (ver
+    // firebase.js:notifyAllStaff/sendPushToUid), pero un fallo acá nunca debe tumbar la reserva
+    // que ya se creó bien.
+    firebase.notifyAllStaff({
+      type: 'reservation', targetCode: created.code,
+      message: `Nueva reserva ${created.code} — ${created.unitLabel} · ${created.name}`,
+    }).catch(() => {});
     res.status(201).json(created);
   } catch (err) {
     sendReservationError(req, res, err);
@@ -361,6 +369,14 @@ app.post('/reservations/:code/payment-report', allowSiteOrigin, trafficLimiter, 
     if (proofUrl) report.proofUrl = String(proofUrl).trim();
 
     const updated = await firebase.reportPayment(code, report);
+    // Fire-and-forget, mismo criterio que en POST /reservations arriba — un pago reportado es
+    // justo el tipo de evento que un dueño quiere saber sin tener el panel abierto. Este
+    // endpoint es SIEMPRE transferencia (efectivo no tiene paso de "reportar", lo confirma un
+    // admin en persona — ver cashPaymentHtml en index.html), no hace falta chequear el método.
+    firebase.notifyAllStaff({
+      type: 'payment', targetCode: code,
+      message: `${code} reportó una transferencia por $${Number(report.amount).toLocaleString('es-CO')} — pendiente de verificar`,
+    }).catch(() => {});
     res.json(updated);
   } catch (err) {
     sendReservationError(req, res, err);

@@ -90,6 +90,21 @@ const config = {
     resendFrom: optional('RESEND_FROM', 'Uso Inmobiliario <onboarding@resend.dev>'),
   },
 
+  // Notificaciones push del sistema operativo (2026-09-14) — Web Push estándar (Push API +
+  // Service Worker + VAPID), no un servicio de terceros: Chrome/Edge/Firefox lo entregan gratis
+  // por su cuenta, mismo criterio de costo ya aplicado con Resend/Cloudinary. El par de llaves
+  // se generó UNA vez con `npx web-push generate-vapid-keys` (determinístico, sin red ni
+  // cuenta) — la pública viaja también en el bundle del middleware (no es secreta, mismo
+  // criterio que el apiKey de Firebase); la privada es la única que de verdad debe protegerse.
+  // vapidSubject es un contacto real exigido por el protocolo VAPID (para que un proveedor de
+  // push pueda avisarle a alguien si el servidor abusa del servicio) — nunca se muestra al
+  // usuario final.
+  vapid: {
+    publicKey: optional('VAPID_PUBLIC_KEY', 'BErcl8a1nCnM9htI2hq3Bt_yIpEuY0soWbDjxZDIuUTqT02NaATCTRweExI8J5fQFo2MJEpDOhgmcy7VYw1bFlY'),
+    privateKey: optional('VAPID_PRIVATE_KEY', ''),
+    subject: optional('VAPID_SUBJECT', 'mailto:usoinmobiliario@gmail.com'),
+  },
+
   // URL pública donde vive el sitio (index.html, Firebase Hosting) — usada para armar el link
   // real de cada apartamento (misma ruta hash que ya existe en el sitio: #/unidad/:tipo?u=:num,
   // ver route() en index.html). Sin barra final.

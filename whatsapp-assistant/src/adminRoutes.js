@@ -183,6 +183,12 @@ router.post('/reservations', STAFF, asyncHandler(async (req, res) => {
     await logAction(req, 'reservation.create_manual', rec2.code, { unitType: rec2.unitType, unitNum: rec2.unitNum });
     return rec2;
   });
+  // Fire-and-forget — mismo evento que dispara POST /reservations del sitio público, para que el
+  // resto del staff (no solo quien la creó acá) se entere igual.
+  fb.notifyAllStaff({
+    type: 'reservation', targetCode: created.code,
+    message: `Nueva reserva manual ${created.code} — ${created.unitLabel} · ${created.name}`,
+  }).catch(() => {});
   res.status(201).json(created);
 }));
 
@@ -432,6 +438,21 @@ router.get('/notifications', ANY_STAFF, asyncHandler(async (req, res) => {
 }));
 router.post('/notifications/:id/read', ANY_STAFF, asyncHandler(async (req, res) => {
   await fb.markNotificationRead(req.adminUser.uid, req.params.id);
+  res.json({ ok: true });
+}));
+
+// Suscripción push del navegador/dispositivo actual — mismo criterio de acceso que
+// /notifications (el propio uid del token ya delimita el alcance, cualquier staff gestiona la
+// suya). El body es el objeto PushSubscription tal cual lo entrega el navegador
+// (PushSubscription.toJSON(): {endpoint, keys:{p256dh,auth}}).
+router.post('/push/subscribe', ANY_STAFF, asyncHandler(async (req, res) => {
+  await fb.savePushSubscription(req.adminUser.uid, req.body || {});
+  res.status(201).json({ ok: true });
+}));
+router.post('/push/unsubscribe', ANY_STAFF, asyncHandler(async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'invalid' });
+  await fb.removePushSubscription(req.adminUser.uid, endpoint);
   res.json({ ok: true });
 }));
 

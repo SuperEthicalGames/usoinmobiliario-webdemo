@@ -879,6 +879,10 @@ async function createNotification(uid, { type, message, targetCode }) {
   const ref = db().ref(`notifications/${uid}`).push();
   const entry = { type, message, targetCode: targetCode || null, read: false, createdAt: new Date().toISOString() };
   await withTimeout(ref.set(entry), 'notification.create');
+  // Fire-and-forget, nunca awaited (mismo criterio que notifyByEmail en adminRoutes.js) — un
+  // push que falla en entregarse nunca debe tumbar la creación de la notificación en sí, que ya
+  // se guardó bien arriba y sigue viéndose dentro del panel de todos modos.
+  sendPushToUid(uid, { title: 'Uso Inmobiliario', body: message, targetCode: targetCode || null }).catch(() => {});
   return { id: ref.key, ...entry };
 }
 async function listNotificationsForUser(uid, limit) {
@@ -888,6 +892,64 @@ async function listNotificationsForUser(uid, limit) {
 }
 async function markNotificationRead(uid, id) {
   await dbSet(`notifications/${uid}/${id}/read`, true);
+}
+
+// --- Notificaciones push del sistema operativo (Web Push: Push API + Service Worker + VAPID,
+// ver config.vapid) — createNotification (arriba) es el ÚNICO punto de entrada de
+// notificaciones hoy, conectar el push ahí alcanza para que CUALQUIER notificación futura salga
+// por push gratis, sin tocar cada lugar que ya llama createNotification ni los que se agreguen
+// después. ---
+const webpush = require('web-push');
+let webpushConfigured = false;
+function ensureWebpushConfigured() {
+  if (webpushConfigured) return true;
+  if (!config.vapid.privateKey) return false; // sin llave privada el push queda apagado, no es un error — ver .env.example
+  webpush.setVapidDetails(config.vapid.subject, config.vapid.publicKey, config.vapid.privateKey);
+  webpushConfigured = true;
+  return true;
+}
+
+// endpoint es único por dispositivo/navegador — codificado (una key de Firebase no admite "/"
+// ni ".") sirve como id de la suscripción, así un mismo uid puede tener varias (celular +
+// laptop) sin duplicar la misma dos veces, y borrar exactamente la que ya no sirve.
+function subscriptionKey(endpoint) {
+  return Buffer.from(endpoint).toString('base64url');
+}
+async function savePushSubscription(uid, subscription) {
+  if (!subscription || !subscription.endpoint) { const e = new Error('invalid-subscription'); e.code = 'invalid'; throw e; }
+  await dbSet(`pushSubscriptions/${uid}/${subscriptionKey(subscription.endpoint)}`, subscription);
+}
+async function removePushSubscription(uid, endpoint) {
+  await db().ref(`pushSubscriptions/${uid}/${subscriptionKey(endpoint)}`).remove();
+}
+async function sendPushToUid(uid, payload) {
+  if (!ensureWebpushConfigured()) return;
+  const snap = await dbGet(`pushSubscriptions/${uid}`);
+  const subs = snap.val();
+  if (!subs) return;
+  const body = JSON.stringify(payload);
+  await Promise.all(Object.entries(subs).map(([key, sub]) =>
+    webpush.sendNotification(sub, body).catch((err) => {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        // El navegador/dispositivo ya no existe (desinstalado, permiso revocado) — limpiar sola
+        // la suscripción muerta, nunca reintentar algo que va a fallar para siempre.
+        return db().ref(`pushSubscriptions/${uid}/${key}`).remove().catch(() => {});
+      }
+      console.error('[firebase] sendPushToUid: no se pudo entregar un push a', uid, err.message);
+    })
+  ));
+}
+// Notifica a TODO el staff con acceso real (dueño + admins activos, nunca empleados — mismos
+// criterios de acceso que ya usa el resto del panel) — para eventos que le importan al negocio
+// entero, no a una sola persona asignada (a diferencia de aseo/mantenimiento, que sí tienen un
+// assignedTo y usan createNotification directo).
+async function notifyAllStaff({ type, message, targetCode }) {
+  const users = await listUsersWithRoles();
+  await Promise.all(users
+    .filter((u) => u.role !== 'employee' && !u.disabled)
+    .map((u) => createNotification(u.uid, { type, message, targetCode }).catch((err) => {
+      console.error('[firebase] notifyAllStaff: no se pudo notificar a', u.uid, err.message);
+    })));
 }
 
 // --- Contratos (arriendo formal — cubre estadías largas que van más allá de una reserva
@@ -1149,6 +1211,9 @@ module.exports = {
   createNotification,
   listNotificationsForUser,
   markNotificationRead,
+  savePushSubscription,
+  removePushSubscription,
+  notifyAllStaff,
   getReservationByCode,
   getUnitBookings,
   checkAvailability,
