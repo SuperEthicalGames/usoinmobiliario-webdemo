@@ -118,7 +118,14 @@ app.post('/webhook/whatsapp', (req, res) => {
   res.sendStatus(200);
 
   const incoming = whatsapp.parseIncomingMessage(req.body);
-  if (!incoming) return; // no era un mensaje de texto de un cliente (status, imagen, etc.)
+  if (!incoming) {
+    // no era un mensaje de texto de un cliente (status, imagen, etc.)
+    console.log('[webhook] evento recibido con firma válida, sin mensaje de texto (status/imagen/etc.) — ignorado');
+    return;
+  }
+  // Solo los últimos 4 dígitos, para poder confirmar en los logs que Meta sí llegó sin guardar
+  // el número completo del cliente en los logs.
+  console.log(`[webhook] mensaje de texto recibido de ...${String(incoming.from).slice(-4)}`);
 
   conversationStore.runSerialized(incoming.from, () => processMessage(incoming)).catch((err) => {
     console.error('[server] Error procesando mensaje entrante:', err);
@@ -135,6 +142,7 @@ async function processMessage({ from, text }) {
   }
   try {
     await whatsapp.sendTextMessage(from, reply);
+    console.log(`[webhook] respuesta enviada a ...${String(from).slice(-4)}`);
   } catch (err) {
     console.error('[server] Error enviando respuesta por WhatsApp:', err);
   }
