@@ -894,6 +894,7 @@ async function listUsersWithRoles() {
   const roles = rolesSnap.val() || {};
   return authUsers.map((u) => {
     if (u.email === config.superAdminEmail) return { ...u, role: 'owner' };
+    if (config.developerEmail && u.email === config.developerEmail) return { ...u, role: 'developer' };
     const documented = roles[u.uid] && roles[u.uid].role;
     return { ...u, role: documented === 'admin' || documented === 'employee' ? documented : null };
   });

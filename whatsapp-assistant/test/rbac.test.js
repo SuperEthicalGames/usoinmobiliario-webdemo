@@ -7,6 +7,7 @@ process.env.WHATSAPP_PHONE_NUMBER_ID = 'dummy';
 process.env.WHATSAPP_VERIFY_TOKEN = 'dummy';
 process.env.GEMINI_API_KEY = 'dummy';
 process.env.SUPER_ADMIN_EMAIL = 'owner@example.com';
+process.env.DEVELOPER_EMAIL = 'dev@example.com';
 
 const { test, mock, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -122,6 +123,38 @@ test('attachRole: correo del super admin -> owner, sin consultar roles/', async 
   assert.equal(req.adminUser.role, 'owner');
   assert.equal(result().nextCalled, true);
   assert.equal(getUserRole.mock.calls.length, 0);
+});
+
+test('attachRole: correo del developer -> role=developer, sin consultar roles/', async () => {
+  const getUserRole = mock.method(fb, 'getUserRole', async () => { throw new Error('no debería llamarse'); });
+  mock.method(fb, 'init', () => {});
+  const { req, res, next, result } = mockReqResForAttach('dev@example.com');
+  await attachRole(req, res, next);
+  assert.equal(req.adminUser.role, 'developer');
+  assert.equal(result().nextCalled, true);
+  assert.equal(getUserRole.mock.calls.length, 0);
+});
+
+test('requireRole: developer pasa donde pasa owner (owner-only, STAFF y ANY_STAFF)', () => {
+  for (const allowed of [['owner'], ['owner', 'admin'], ['owner', 'admin', 'employee']]) {
+    const { req, res, next, result } = mockReqRes('developer');
+    requireRole(...allowed)(req, res, next);
+    assert.equal(result().nextCalled, true, `developer debería pasar ${allowed.join(',')}`);
+  }
+});
+
+test('requireRole: developer NO pasa una ruta que no permite owner (nunca abre rutas de otro rol)', () => {
+  const { req, res, next, result } = mockReqRes('developer');
+  requireRole('employee')(req, res, next);
+  assert.equal(result().statusCode, 403);
+});
+
+test('attachRole: un usuario con correo parecido al developer (no exacto) NO recibe el rol', async () => {
+  mock.method(fb, 'init', () => {});
+  mock.method(fb, 'getUserRole', async () => null);
+  const { req, res, next, result } = mockReqResForAttach('dev@example.com.evil.io');
+  await attachRole(req, res, next);
+  assert.equal(result().statusCode, 403);
 });
 
 test('attachRole: rol documentado como admin -> pasa con role=admin', async () => {

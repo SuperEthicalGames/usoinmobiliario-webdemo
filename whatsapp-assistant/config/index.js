@@ -76,6 +76,13 @@ const config = {
   // cuenta), así que la restricción es real, no solo de UI.
   superAdminEmail: optional('SUPER_ADMIN_EMAIL', 'usoinmobiliario@gmail.com'),
 
+  // Cuenta del desarrollador de la plataforma — mismo mecanismo que el dueño (comparación exacta
+  // de correo contra el ID token ya verificado, nunca un dato asignable desde el panel) y mismo
+  // alcance de permisos que el dueño, pero con un rol propio ('developer') para que la bitácora y
+  // la lista de usuarios muestren claramente quién es. No recibe notificaciones operativas del
+  // negocio (notifyAllStaff solo avisa a owner/admin). Vacío desactiva el rol.
+  developerEmail: optional('DEVELOPER_EMAIL', 'superethicalgames@gmail.com'),
+
   // Correo transaccional real, $0 — API HTTP de Resend (resend.com), no SMTP. SMTP de Gmail
   // directo desde este backend se abandonó el 2026-09-13: Render (como la mayoría de
   // plataformas cloud) bloquea o descarta en silencio las conexiones SMTP salientes desde IPs

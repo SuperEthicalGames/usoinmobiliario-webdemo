@@ -9,11 +9,12 @@ seguridad (autenticación, Rules de Firebase, gestión de secretos), ver `SECURI
 | Rol | Cómo se identifica | Puede |
 |---|---|---|
 | **OWNER** (dueño) | Su email coincide con `config.superAdminEmail` — comparación de string, no un dato asignable (decisión ya tomada, ver `SECURITY.md`) | Todo. Único rol que puede crear/editar/deshabilitar cuentas (`/users*`), editar apartamentos (`/apartments` POST/PUT), editar datos bancarios, ver la Bitácora |
-| **ADMIN** | Cuenta de Firebase Auth con `roles/{uid}.role` ausente o `'admin'` | Reservas, visitas, pagos, contratos, aseo, mantenimiento, analíticas, catálogo de apartamentos (solo lectura) |
+| **DEVELOPER** (desarrollador) | Su email coincide con `config.developerEmail` (env `DEVELOPER_EMAIL`, por defecto `superethicalgames@gmail.com`; vacío lo desactiva) — mismo mecanismo que OWNER, jamás un dato en `roles/` | Exactamente lo mismo que OWNER: `requireRole` lo deja pasar en toda ruta que permita `owner`. No recibe notificaciones operativas (`notifyAllStaff` solo avisa a owner/admin). Sus acciones quedan en la Bitácora con su correo, y el dueño lo ve en Usuarios y puede revocarlo |
+| **ADMIN** | Cuenta de Firebase Auth con `roles/{uid}.role` explícito `'admin'` (sin documento ⇒ 403, ver SEC-002) | Reservas, visitas, pagos, contratos, aseo, mantenimiento, analíticas, catálogo de apartamentos (solo lectura) |
 | **EMPLOYEE** (empleado) | Cuenta de Firebase Auth con `roles/{uid}.role === 'employee'` | Solo sus propias tareas de aseo/mantenimiento asignadas, y sus notificaciones |
 
 No existe un rol "super-admin" separado en el código — `isSuperAdmin` (en `/me` y en el
-`AuthContext` del panel) es simplemente `role === 'owner'`, mantenido por compatibilidad con el
+`AuthContext` del panel) es `role === 'owner' || role === 'developer'`, mantenido por compatibilidad con el
 panel ya desplegado antes de que existiera esta matriz completa.
 
 ## Dónde vive la aplicación real de esto

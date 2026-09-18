@@ -192,13 +192,13 @@ router.get('/categories', ANY_STAFF, asyncHandler(async (_req, res) => {
 // requireRole/requireSuperAdmin en cada ruta sensible, esto es solo para que la UI sepa qué
 // mostrar sin que el frontend tenga que conocer/hardcodear el correo del dueño por su cuenta.
 // isSuperAdmin se conserva (compatibilidad con el panel ya desplegado) — equivale exactamente
-// a role === 'owner'.
+// a role === 'owner' o 'developer' (este último con los mismos permisos que el dueño).
 router.get('/me', asyncHandler(async (req, res) => {
   res.json({
     uid: req.adminUser.uid,
     email: req.adminUser.email,
     role: req.adminUser.role,
-    isSuperAdmin: req.adminUser.role === 'owner',
+    isSuperAdmin: req.adminUser.role === 'owner' || req.adminUser.role === 'developer',
   });
 }));
 

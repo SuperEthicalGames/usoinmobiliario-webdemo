@@ -55,6 +55,12 @@ async function attachRole(req, res, next) {
     req.adminUser.role = 'owner';
     return next();
   }
+  // 'developer': cuenta técnica de la plataforma, identificada igual que el dueño (correo exacto
+  // del token verificado, jamás un dato en roles/). requireRole la trata como owner-equivalente.
+  if (config.developerEmail && req.adminUser.email === config.developerEmail) {
+    req.adminUser.role = 'developer';
+    return next();
+  }
   try {
     firebase.init();
     const role = await firebase.getUserRole(req.adminUser.uid);
@@ -72,9 +78,14 @@ async function attachRole(req, res, next) {
 // Gate genérico: requireRole('owner','admin') dentro de una ruta ya montada detrás de
 // requireAdminAuth+attachRole. Nunca se llama antes de attachRole (req.adminUser.role no
 // existiría todavía) — ver el orden de montaje en app.js.
+// 'developer' hereda exactamente lo que puede 'owner': toda ruta que permita 'owner' (STAFF,
+// ANY_STAFF, requireSuperAdmin) lo permite también — un solo punto de decisión, ninguna ruta
+// tuvo que cambiar.
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
-    if (!req.adminUser || !allowedRoles.includes(req.adminUser.role)) {
+    const role = req.adminUser && req.adminUser.role;
+    const allowed = allowedRoles.includes(role) || (role === 'developer' && allowedRoles.includes('owner'));
+    if (!allowed) {
       return res.status(403).json({ error: 'forbidden' });
     }
     next();

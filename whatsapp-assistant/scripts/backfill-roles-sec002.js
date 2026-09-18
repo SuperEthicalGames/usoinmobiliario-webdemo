@@ -29,7 +29,8 @@ async function main() {
   console.log(`Cuentas de Firebase Auth encontradas: ${users.length}`);
   let backfilled = 0, skippedOwner = 0, skippedHasRole = 0;
   for (const u of users) {
-    if (u.email === config.superAdminEmail) { skippedOwner++; continue; }
+    // owner y developer se resuelven por correo en attachRole, nunca viven en roles/
+    if (u.email === config.superAdminEmail || (config.developerEmail && u.email === config.developerEmail)) { skippedOwner++; continue; }
     const existingRole = await fb.getUserRole(u.uid);
     if (existingRole) {
       skippedHasRole++;
