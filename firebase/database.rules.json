@@ -21,7 +21,6 @@
       "reservations": {
         ".read": "auth != null",
         "$code": {
-          ".read": true,
           ".write": "auth != null",
           ".validate": "newData.hasChildren(['code','type','createdAt','name','phone','email','status']) && newData.child('code').val() == $code && newData.child('type').val() == 'reserva'",
 
@@ -84,7 +83,6 @@
       "visits": {
         ".read": "auth != null",
         "$code": {
-          ".read": true,
           ".write": "auth != null",
           ".validate": "newData.hasChildren(['code','type','createdAt','name','phone','status']) && newData.child('code').val() == $code && newData.child('type').val() == 'cita'",
 

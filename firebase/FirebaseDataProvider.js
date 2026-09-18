@@ -20,7 +20,7 @@
 // corrió y expuso window.__uso_setDataProvider). No hace falta tocar nada más del HTML.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getDatabase, ref, onValue, get, update } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js";
+import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 var app = initializeApp(firebaseConfig);
@@ -135,23 +135,19 @@ function apartmentsByCategory(typeKey){
        teléfono/correo, aunque sean inventados) para bloquear una fecha, exactamente el mismo
        costo que ya tenía el flujo legítimo, así que ninguna reserva real deja de funcionar. */
 
-// reservationsManager/reservations/{code} y reservationsManager/visits/{code} — separados
-// en dos sub-árboles distintos (en vez de un único `reservations/{code}` con un campo
-// `type` como único diferenciador) para que la estructura misma refleje que son dos
-// procesos de negocio distintos, más fácil de navegar en la consola de Firebase y de
-// asegurar por separado en las rules. `type` se sigue guardando dentro del registro (no solo
-// implícito por la ruta) para que el resto del código (BOOKING, renderReservationSummary,
-// etc.) siga leyendo `res.type` exactamente igual que antes — cero cambios en la UI por esto.
-function pathFor(type){ return type === 'cita' ? 'reservationsManager/visits' : 'reservationsManager/reservations'; }
 
 var MY_CODES_KEY = 'usoInmobiliario_misCodigos_v1';
 function loadMyCodes(){
   try{ var raw = localStorage.getItem(MY_CODES_KEY); return raw ? JSON.parse(raw) : []; }catch(e){ return []; }
 }
-function rememberMyCode(code, type){
+// email se guarda junto al código (SEC-001, auditoría 2026-09-16) — quien acaba de crear la
+// reserva ya escribió su correo en este mismo navegador, así que "reservas recientes" puede
+// seguir consultando el detalle sin pedírselo de nuevo. Nunca se manda a ningún lado más que al
+// propio backend, en la misma consulta que ya hacía antes.
+function rememberMyCode(code, type, email){
   try{
     var list = loadMyCodes();
-    list.unshift({code: code, type: type});
+    list.unshift({code: code, type: type, email: email || ''});
     localStorage.setItem(MY_CODES_KEY, JSON.stringify(list));
   }catch(e){}
 }
@@ -256,51 +252,31 @@ function createReservation(rec){
     // había armado solo para tener algo que mandar). Usar rec.code acá guardaría el código
     // equivocado en "Mi reserva" — un bug real fácil de pasar por alto porque antes ambos
     // valores eran siempre el mismo.
-    rememberMyCode(created.code, created.type);
+    rememberMyCode(created.code, created.type, created.email);
     return created;
   });
 }
 
-function getReservation(code){
-  // No sabemos de antemano si el código es de una reserva o una cita (quien busca solo
-  // escribe el código) — se prueba primero reservations/ y, si no aparece ahí, visits/.
-  return get(ref(db, 'reservationsManager/reservations/' + code)).then(function(snap){
-    if(snap.exists()) return snap.val();
-    return get(ref(db, 'reservationsManager/visits/' + code)).then(function(snap2){
-      return snap2.exists() ? snap2.val() : null;
-    });
-  });
+// SEC-001 (auditoría 2026-09-16): antes esto leía reservationsManager/{reservations,visits}/
+// {code} directo de Firebase — esa ruta tenía ".read": true, así que CUALQUIERA con el código
+// (adivinado, o listado completo vía unitBookings, que exponía TODOS los códigos en su raíz
+// pública) podía leer nombre/teléfono/correo/pago de una reserva ajena. Ahora pasa por el
+// backend, que además de la validación normal exige el CORREO real de esa reserva antes de
+// devolver el registro (mismo patrón que ya usaba el reenvío de correo de confirmación) — el
+// código sigue siendo el identificador público, pero ya no destraba nada por sí solo.
+function getReservation(code, email){
+  if(!email) return Promise.resolve(null);
+  var url = backendUrl('/reservations/' + encodeURIComponent(code) + '?email=' + encodeURIComponent(email));
+  return fetch(url).then(function(res){
+    if(!res.ok) return null;
+    return res.json();
+  }).catch(function(){ return null; });
 }
 
 function getMyReservations(){
   var mine = loadMyCodes();
-  return Promise.all(mine.map(function(m){ return getReservation(m.code); })).then(function(recs){
+  return Promise.all(mine.map(function(m){ return getReservation(m.code, m.email); })).then(function(recs){
     return recs.filter(function(r){ return !!r; });
-  });
-}
-
-function setReservationStatus(code, status){
-  // Solo funciona si quien llama está autenticado (rules) — hoy nada en la UI lo invoca
-  // todavía (no existe login de administrador, eso es Fase 6), queda listo para entonces.
-  // Si se rechaza/cancela, libera las noches/turno bloqueados para que otra persona sí
-  // pueda pedir esas mismas fechas — sin esto, una reserva rechazada dejaría el calendario
-  // bloqueado para siempre, lo cual sería otra forma de "mentir".
-  return getReservation(code).then(function(rec){
-    if(!rec) return null;
-    var unitKey = unitKeyOf(rec.unitType, rec.unitNum);
-    var updates = {};
-    updates[pathFor(rec.type) + '/' + code + '/status'] = status;
-    updates['unitBookings/' + unitKey + '/' + code + '/status'] = status;
-    if(status === 'rechazada' || status === 'cancelada'){
-      if(rec.type === 'reserva'){
-        nightsBetween(rec.checkin, rec.checkout).forEach(function(n){
-          updates['bookedNights/' + unitKey + '/' + n] = null;
-        });
-      } else {
-        updates['bookedVisitSlots/' + unitKey + '/' + rec.visitDate + '_' + rec.visitTime] = null;
-      }
-    }
-    return update(ref(db), updates).then(function(){ return getReservation(code); });
   });
 }
 
@@ -339,7 +315,6 @@ var FirebaseDataProvider = {
   createReservation: createReservation,
   getReservation: getReservation,
   getMyReservations: getMyReservations,
-  setReservationStatus: setReservationStatus,
   setPaymentMethod: setPaymentMethod,
   reportPayment: reportPayment,
   getPaymentInfo: getPaymentInfo

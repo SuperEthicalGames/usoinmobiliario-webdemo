@@ -593,18 +593,4 @@ router.get('/audit-log', requireSuperAdmin, asyncHandler(async (req, res) => {
   res.json(await fb.listAuditLog(limit));
 }));
 
-// DIAGNÓSTICO TEMPORAL — probar el token nuevo de WhatsApp directo, sin pasar por el flujo
-// fire-and-forget de notifyByWhatsApp (que traga el error). Se quita en cuanto se confirme que
-// el envío real funciona.
-router.post('/_diag/whatsapp', STAFF, asyncHandler(async (req, res) => {
-  const { phone, text } = req.body || {};
-  const to = toWhatsAppId(phone);
-  try {
-    const info = await whatsapp.sendTextMessage(to, text || 'Prueba de diagnóstico — token de WhatsApp.');
-    res.json({ ok: true, to, info });
-  } catch (err) {
-    res.json({ ok: false, to, error: err.message });
-  }
-}));
-
 module.exports = router;

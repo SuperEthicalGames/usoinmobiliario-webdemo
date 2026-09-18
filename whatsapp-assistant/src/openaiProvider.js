@@ -87,6 +87,9 @@ async function handleIncomingMessage(conversationKey, userText, channel) {
     ...history.map((h) => ({ role: toOpenAiRole(h.role), content: h.parts.map((p) => p.text || '').join('') })),
     { role: 'user', content: userText },
   ];
+  // SEC-004 (auditoría 2026-09-16): ver geminiProvider.js para el porqué — conversationKey ES el
+  // número real del remitente por WhatsApp, ya autenticado por la firma HMAC del webhook.
+  const toolContext = { channel, verifiedPhone: channel === 'web' ? null : conversationKey };
 
   let guard = 0;
   let finalText = '';
@@ -110,7 +113,7 @@ async function handleIncomingMessage(conversationKey, userText, channel) {
     for (const call of toolCalls) {
       let args = {};
       try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* args mal formados, se trata como vacío */ }
-      const toolResult = await executeFunctionCall(call.function.name, args);
+      const toolResult = await executeFunctionCall(call.function.name, args, toolContext);
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolResult) });
     }
   }

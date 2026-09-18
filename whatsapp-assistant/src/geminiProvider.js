@@ -100,6 +100,12 @@ async function handleIncomingMessage(conversationKey, userText, channel) {
   const isFirstMessage = conversationStore.get(conversationKey) === null;
   const history = conversationStore.getOrCreate(conversationKey);
   const contents = [...history, { role: 'user', parts: [{ text: userText }] }];
+  // SEC-004 (auditoría 2026-09-16): por WhatsApp (canal por defecto, channel !== 'web'),
+  // conversationKey ES el número real del remitente (ver app.js: conversationStore.runSerialized
+  // (incoming.from, ...) / aiAgent.handleIncomingMessage(from, text)) — ya autenticado por la
+  // firma HMAC del webhook (whatsapp.js), no algo que el modelo pueda inventar o falsear. Por web
+  // no hay ningún teléfono verificado (conversationKey es solo un sessionId de localStorage).
+  const toolContext = { channel, verifiedPhone: channel === 'web' ? null : conversationKey };
 
   let guard = 0;
   let finalText = '';
@@ -123,7 +129,7 @@ async function handleIncomingMessage(conversationKey, userText, channel) {
     // (la API rechaza role:'function' — ver nota arriba).
     const responseParts = [];
     for (const part of functionCallParts) {
-      const toolResult = await executeFunctionCall(part.functionCall.name, part.functionCall.args);
+      const toolResult = await executeFunctionCall(part.functionCall.name, part.functionCall.args, toolContext);
       responseParts.push({ functionResponse: { name: part.functionCall.name, response: toolResult } });
     }
     contents.push({ role: 'user', parts: responseParts });

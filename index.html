@@ -981,8 +981,9 @@
     footMiReserva:{es:"Consultar mi reserva",en:"Look up my booking"},
     miReservaEyebrow:{es:"Seguimiento",en:"Tracking"},
     miReservaTitle:{es:"Consulta tu reserva",en:"Look up your booking"},
-    miReservaSub:{es:"Ingresa el código que recibiste al reservar, formato AAA000.",en:"Enter the code you got when booking, format AAA000."},
+    miReservaSub:{es:"Ingresa el código que recibiste al reservar (formato AAA000) y el correo con el que reservaste.",en:"Enter the code you got when booking (format AAA000) and the email you used."},
     miReservaPh:{es:"Ej. UIN482",en:"e.g. UIN482"},
+    miReservaEmailPh:{es:"Correo con el que reservaste",en:"Email you used to book"},
     miReservaBtn:{es:"Buscar",en:"Search"},
     miReservaSearching:{es:"Buscando...",en:"Searching..."},
     miReservaNotFound:{es:"No encontramos ninguna reserva con ese código.",en:"We couldn't find a booking with that code."},
@@ -1814,26 +1815,20 @@ var HERO_IMG = "media/hero.jpg";
       });
     }
     function createReservation(data){ return createRecord(data, 'reserva'); }
-    function getReservation(code){
+    // SEC-001 (auditoría 2026-09-16): ver "Mi reserva" ahora exige el correo real de la reserva,
+    // no solo el código — ver FirebaseDataProvider.getReservation para el porqué.
+    function getReservation(code, email){
       code = (code||'').trim().toUpperCase();
-      return DataProvider.getReservation(code);
+      return DataProvider.getReservation(code, email);
     }
     function getAll(){ return DataProvider.getMyReservations(); } // reservas + citas creadas en este navegador, para "Mi reserva"
-    function setStatus(code, status){ return DataProvider.setReservationStatus(code, status); }
-    function confirmReservation(code){ return setStatus(code, 'confirmada'); }
-    function rejectReservation(code){ return setStatus(code, 'rechazada'); }
-    function cancelReservation(code){ return setStatus(code, 'cancelada'); }
-    function completeReservation(code){ return setStatus(code, 'completada'); }
-    function checkReservationStatus(code){ return getReservation(code).then(function(r){ return r ? r.status : null; }); }
     function reportPayment(code, report){ return DataProvider.reportPayment(code, report); }
     function setPaymentMethod(code, method){ return DataProvider.setPaymentMethod(code, method); }
     function getPaymentInfo(){ return DataProvider.getPaymentInfo(); }
     return {
       _createRecord: createRecord,
       createReservation: createReservation, getReservation: getReservation,
-      getAll: getAll, confirmReservation: confirmReservation, rejectReservation: rejectReservation,
-      cancelReservation: cancelReservation, completeReservation: completeReservation,
-      checkReservationStatus: checkReservationStatus,
+      getAll: getAll,
       reportPayment: reportPayment, setPaymentMethod: setPaymentMethod, getPaymentInfo: getPaymentInfo
     };
   })();
@@ -2068,13 +2063,9 @@ var HERO_IMG = "media/hero.jpg";
      pero comparten la misma lógica de creación/almacenamiento vía _createRecord. */
   var VisitService = (function(){
     function createVisit(data){ return ReservationService._createRecord(data, 'cita'); }
-    function getVisit(code){ return ReservationService.getReservation(code); }
-    function confirmVisit(code){ return ReservationService.confirmReservation(code); }
-    function cancelVisit(code){ return ReservationService.cancelReservation(code); }
     function getAvailableVisitSlots(date){ return AvailabilityService.getVisitSlots(date); }
     return {
-      createVisit: createVisit, getVisit: getVisit,
-      confirmVisit: confirmVisit, cancelVisit: cancelVisit, getAvailableVisitSlots: getAvailableVisitSlots
+      createVisit: createVisit, getAvailableVisitSlots: getAvailableVisitSlots
     };
   })();
 
@@ -2935,7 +2926,7 @@ var HERO_IMG = "media/hero.jpg";
         +   '<a class="btn btn-primary" href="https://wa.me/573136496615?text='+encodeURIComponent(waText)+'" target="_blank" rel="noopener">'+t('bkSendWa')+' →</a>'
         +   '<button type="button" class="btn btn-ghost" id="bkCopyBtn">'+t('bkCopyCode')+'</button>'
         +   (isVisit ? '' : '<button type="button" class="btn btn-ghost" id="bkDownloadCardBtn">'+t('bkDownloadCard')+'</button>')
-        +   '<a class="btn btn-ghost" href="#/mi-reserva?code='+res.code+'" id="bkViewMineLink">'+t('bkViewMine')+'</a>'
+        +   '<a class="btn btn-ghost" href="#/mi-reserva?code='+res.code+'&email='+encodeURIComponent(res.email||'')+'" id="bkViewMineLink">'+t('bkViewMine')+'</a>'
         +   '<button type="button" class="btn btn-ghost" id="bkCloseDoneBtn">'+t('bkCloseDone')+'</button>'
         + '</div>';
       setBody(html);
@@ -3477,7 +3468,7 @@ var HERO_IMG = "media/hero.jpg";
     return html;
   }
 
-  function renderMiReserva(prefillCode){
+  function renderMiReserva(prefillCode, prefillEmail){
     var html = crumbs([{label:t('navMiReserva')}]);
     html += '<section class="unit-hero"><div class="wrap">'
       + '<p class="eyebrow">'+t('miReservaEyebrow')+'</p>'
@@ -3488,6 +3479,7 @@ var HERO_IMG = "media/hero.jpg";
       + '<div id="connSyncWarning" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:10px;background:#fff3cd;color:#7a5b00;font-size:13.5px;"></div>'
       + '<form id="lookupForm" class="lookup-form">'
       +   '<input type="text" id="lookupInput" maxlength="8" placeholder="'+t('miReservaPh')+'" value="'+BOOKING.escHtml(prefillCode||'')+'" autocomplete="off">'
+      +   '<input type="email" id="lookupEmailInput" placeholder="'+t('miReservaEmailPh')+'" value="'+BOOKING.escHtml(prefillEmail||'')+'" autocomplete="email">'
       +   '<button type="submit" class="btn btn-primary">'+t('miReservaBtn')+'</button>'
       + '</form>'
       + '<div id="lookupResult"></div>'
@@ -3876,9 +3868,10 @@ var HERO_IMG = "media/hero.jpg";
     miReservaCountdownInterval = setInterval(tick, 1000);
   }
 
-  function mountMiReservaInteractivity(prefillCode){
+  function mountMiReservaInteractivity(prefillCode, prefillEmail){
     var form = document.getElementById('lookupForm');
     var input = document.getElementById('lookupInput');
+    var emailInput = document.getElementById('lookupEmailInput');
     var resultEl = document.getElementById('lookupResult');
     var recentWrap = document.getElementById('recentWrap');
 
@@ -3890,14 +3883,16 @@ var HERO_IMG = "media/hero.jpg";
       connWarnEl.style.display = 'block';
     }
 
-    function doSearch(code){
+    // SEC-001 (auditoría 2026-09-16): código + correo, no el código solo — ver
+    // FirebaseDataProvider.getReservation.
+    function doSearch(code, email){
       if(miReservaCountdownInterval){ clearInterval(miReservaCountdownInterval); miReservaCountdownInterval = null; }
       resultEl.innerHTML = '<p class="lookup-empty">'+t('miReservaSearching')+'</p>';
-      ReservationService.getReservation(code).then(function(res){
+      ReservationService.getReservation(code, email).then(function(res){
         resultEl.innerHTML = res ? renderReservationSummary(res) : '<p class="lookup-empty">'+t('miReservaNotFound')+'</p>';
         if(res){
-          mountReservationCountdown(function(){ doSearch(code); });
-          mountPaymentSection(res, 'miReservaPaymentSection', function(){ doSearch(code); });
+          mountReservationCountdown(function(){ doSearch(code, email); });
+          mountPaymentSection(res, 'miReservaPaymentSection', function(){ doSearch(code, email); });
           mountResendEmail(res);
           var downloadBtn = document.getElementById('miReservaDownloadCardBtn');
           if(downloadBtn) downloadBtn.addEventListener('click', function(){
@@ -3912,7 +3907,7 @@ var HERO_IMG = "media/hero.jpg";
     }
     if(form) form.addEventListener('submit', function(e){
       e.preventDefault();
-      doSearch(input.value);
+      doSearch(input.value, emailInput.value);
     });
 
     ReservationService.getAll().then(function(all){
@@ -3921,14 +3916,14 @@ var HERO_IMG = "media/hero.jpg";
           + all.slice(0,5).map(function(r){
               var isVisit = r.type === 'cita';
               var meta = isVisit ? (BOOKING.escHtml(r.visitDate)+' · '+BOOKING.escHtml(r.visitTime)) : BOOKING.escHtml(r.checkin);
-              return '<a class="recent-item" href="#/mi-reserva?code='+encodeURIComponent(r.code)+'">'
+              return '<a class="recent-item" href="#/mi-reserva?code='+encodeURIComponent(r.code)+'&email='+encodeURIComponent(r.email||'')+'">'
                 + '<span class="ri-left"><span class="ri-top"><span class="type-tag type-'+(isVisit?'cita':'reserva')+'">'+(isVisit?t('typeTagCita'):t('typeTagReserva'))+'</span><span class="ri-code">'+BOOKING.escHtml(r.code)+'</span></span><span class="ri-meta">'+BOOKING.escHtml(r.unitLabel)+' · '+meta+'</span></span>'
                 + '</a>';
             }).join('')
           + '</div>';
       }
     }).catch(function(err){ console.error('No se pudo cargar el historial de reservas:', err); });
-    if(prefillCode) doSearch(prefillCode);
+    if(prefillCode && prefillEmail) doSearch(prefillCode, prefillEmail);
   }
 
   function unitLabel(unit){ return 'Apartamento H'+unit.num; }
@@ -4380,7 +4375,7 @@ var HERO_IMG = "media/hero.jpg";
       html = renderLegalHub();
       navActive = 'legal';
     } else if(parts[0] === 'mi-reserva'){
-      html = renderMiReserva(params.get('code'));
+      html = renderMiReserva(params.get('code'), params.get('email'));
       navActive = 'miReserva';
     } else if(parts[0] === 'visitas'){
       html = renderVisitsHub();
@@ -4410,7 +4405,7 @@ var HERO_IMG = "media/hero.jpg";
           window.scrollTo(0,0);
         }
       } else if(parts[0] === 'mi-reserva'){
-        mountMiReservaInteractivity(params.get('code'));
+        mountMiReservaInteractivity(params.get('code'), params.get('email'));
         window.scrollTo(0,0);
       } else if(parts[0] === 'visitas'){
         mountVisitsHubInteractivity();

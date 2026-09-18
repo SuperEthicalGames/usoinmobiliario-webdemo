@@ -36,10 +36,20 @@ async function requireAdminAuth(req, res, next) {
 // por request y lo deja en req.adminUser.role para que el resto de la cadena (requireRole) solo
 // lea, nunca vuelva a decidir. OWNER sigue siendo exactamente la misma comparación de string ya
 // documentada en SECURITY.md (decisión consciente, no reabierta acá) — nunca un dato que se
-// pueda crear ni asignar desde ninguna ruta. Cualquier otra cuenta autenticada es 'admin' por
-// defecto (compatibilidad hacia atrás: los admins creados antes de que existiera `roles/` no
-// tienen ningún documento ahí y deben seguir funcionando exactamente igual que hoy) salvo que
-// `roles/{uid}` diga explícitamente 'employee'.
+// pueda crear ni asignar desde ninguna ruta.
+//
+// SEC-002 (auditoría 2026-09-16): ANTES, cualquier cuenta autenticada sin documento en
+// `roles/{uid}` se volvía 'admin' por defecto ("compatibilidad hacia atrás" con cuentas de antes
+// de que existiera `roles/`). Eso es un default fail-open: la única puerta real que decide si
+// alguien puede autenticarse del todo es Firebase Auth verificando el ID token (requireAdminAuth,
+// arriba) — si el alta pública de Email/Password del proyecto sigue habilitada (comportamiento
+// por defecto de Firebase al activar ese proveedor; no hay ninguna Cloud Function de bloqueo en
+// este repo), cualquiera podría auto-registrarse y heredar 'admin' sin que el dueño invitara a
+// nadie. Ahora sin documento en `roles/{uid}` ⇒ SIN ACCESO (403) — fail-closed. Esto exige que
+// cada cuenta admin/employee real YA tenga su `roles/{uid}` escrito de antemano (ver script de
+// backfill de la auditoría, ejecutado una sola vez antes de desplegar este cambio) — nunca
+// desplegar esto sin haber corrido ese backfill primero, o las cuentas admin existentes sin
+// documento quedarían bloqueadas.
 async function attachRole(req, res, next) {
   if (req.adminUser.email === config.superAdminEmail) {
     req.adminUser.role = 'owner';
@@ -48,7 +58,10 @@ async function attachRole(req, res, next) {
   try {
     firebase.init();
     const role = await firebase.getUserRole(req.adminUser.uid);
-    req.adminUser.role = role === 'employee' ? 'employee' : 'admin';
+    if (role !== 'admin' && role !== 'employee') {
+      return res.status(403).json({ error: 'no-role-assigned' });
+    }
+    req.adminUser.role = role;
     next();
   } catch (err) {
     console.error('[adminAuth] Error resolviendo rol:', err.message);

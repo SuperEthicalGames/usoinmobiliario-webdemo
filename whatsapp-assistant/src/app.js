@@ -62,7 +62,9 @@ function allowSiteOrigin(req, res, next) {
   const origin = req.headers.origin;
   res.setHeader('Access-Control-Allow-Origin', LOCALHOST_ORIGIN.test(origin || '') ? origin : SITE_ORIGIN);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  // GET sumado para GET /reservations/:code (SEC-001, auditoría 2026-09-16) — el resto de este
+  // prefijo sigue siendo solo POST.
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   // Idempotency-Key: nuevo, para /reservations y /visits (ver plan de migración de reservas) —
   // sin sumarlo acá, un navegador real bloquea el preflight de cualquier request que la incluya.
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Idempotency-Key');
@@ -173,6 +175,25 @@ app.post('/chat/web/message', allowSiteOrigin, chatLimiter, async (req, res) => 
   }
 });
 
+// Conteo de tráfico del sitio público (sección "público visitado" del panel de analíticas) —
+// público y sin requireAdminAuth a propósito, igual que /chat/web/message: el navegador de un
+// visitante nunca tiene ni puede tener un token de admin. Guarda SOLO un contador agregado por
+// día y por página (ver firebase.js:recordPageview) — nada de cookies, IP ni fingerprint, así
+// que un rate limit generoso (una sesión de navegación normal manda pocas decenas de pageviews,
+// nunca cientos) alcanza para frenar un script abusando del endpoint sin bloquear tráfico real.
+// SEC-003 (auditoría 2026-09-16): se declara ACÁ (antes de las rutas /email/*, que ahora también
+// lo usan) — antes vivía más abajo, junto a /track/*, y esas tres rutas de correo eran las ÚNICAS
+// escrituras públicas de este archivo sin ningún rate-limit por IP, un oráculo barato para
+// confirmar qué códigos de 13.8M existen (404 vs 403) y una forma de agotar la cuota gratuita de
+// Resend (3.000/mes) mandando reintentos contra códigos ajenos.
+const trafficLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate-limited' },
+});
+
 // Correo de confirmación de reserva — llamado por index.html tanto al crear una reserva como
 // al reenviar desde "Mi reserva" (ese flujo ya exige escribir el correo de vuelta; este
 // endpoint reusa esa misma verificación del lado del servidor para ambos casos, ver
@@ -185,7 +206,7 @@ const EMAIL_ERROR_STATUS = {
 // — un navegador real interpreta eso como preflight fallido y NUNCA llega a mandar el POST.
 // Encontrado probando en vivo, no asumido.
 app.options('/email/reservation-confirmation', allowSiteOrigin);
-app.post('/email/reservation-confirmation', allowSiteOrigin, async (req, res) => {
+app.post('/email/reservation-confirmation', allowSiteOrigin, trafficLimiter, async (req, res) => {
   try {
     const { code, email, lang } = req.body || {};
     const result = await emailService.sendReservationConfirmation({ code, email, lang });
@@ -201,7 +222,7 @@ app.post('/email/reservation-confirmation', allowSiteOrigin, async (req, res) =>
 // guarda el pago en Firebase (mountPaymentSection), mismo patrón fire-and-forget que el correo
 // de confirmación de arriba: nunca bloquea la respuesta de éxito que ya ve el cliente.
 app.options('/email/payment-reported', allowSiteOrigin);
-app.post('/email/payment-reported', allowSiteOrigin, async (req, res) => {
+app.post('/email/payment-reported', allowSiteOrigin, trafficLimiter, async (req, res) => {
   try {
     const { code, email, lang } = req.body || {};
     const result = await emailService.sendPaymentReported({ code, email, lang });
@@ -217,7 +238,7 @@ app.post('/email/payment-reported', allowSiteOrigin, async (req, res) => {
 // construyó hasta ahora: agendar una cita no mandaba ningún correo. Mismo patrón exacto que
 // reservation-confirmation, solo que valida type==='cita' en vez de 'reserva'.
 app.options('/email/visit-confirmation', allowSiteOrigin);
-app.post('/email/visit-confirmation', allowSiteOrigin, async (req, res) => {
+app.post('/email/visit-confirmation', allowSiteOrigin, trafficLimiter, async (req, res) => {
   try {
     const { code, email, lang } = req.body || {};
     const result = await emailService.sendVisitConfirmation({ code, email, lang });
@@ -303,25 +324,38 @@ app.post('/visits', allowSiteOrigin, reservationLimiter, async (req, res) => {
   }
 });
 
-// Conteo de tráfico del sitio público (sección "público visitado" del panel de analíticas) —
-// público y sin requireAdminAuth a propósito, igual que /chat/web/message: el navegador de un
-// visitante nunca tiene ni puede tener un token de admin. Guarda SOLO un contador agregado por
-// día y por página (ver firebase.js:recordPageview) — nada de cookies, IP ni fingerprint, así
-// que un rate limit generoso (una sesión de navegación normal manda pocas decenas de pageviews,
-// nunca cientos) alcanza para frenar un script abusando del endpoint sin bloquear tráfico real.
-const trafficLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'rate-limited' },
+// Consultar una reserva/cita por código — SEC-001 (auditoría 2026-09-16): antes esto se leía
+// directo de Firebase desde el navegador (reservationsManager/{reservations,visits}/$code tenía
+// ".read": true), y unitBookings (".read": true en su raíz) entregaba la lista COMPLETA de
+// códigos existentes sin que hiciera falta adivinar nada — dos peticiones sin autenticar bastaban
+// para exfiltrar nombre/teléfono/correo/pago de cualquier reserva. Ahora el código sigue siendo
+// el identificador público, pero ver el detalle completo exige además el correo real de esa
+// reserva (mismo patrón ya probado en emailService.resolveVerifiedReservationEmail para reenviar
+// correos) — código+correo, no el código solo. trafficLimiter: es una lectura, mismo costo que un
+// pageview. Devuelve 404 tanto si el código no existe como si el correo no coincide (nunca
+// distinguir "existe pero no es tuya" de "no existe").
+app.options('/reservations/:code', allowSiteOrigin);
+app.get('/reservations/:code', allowSiteOrigin, trafficLimiter, async (req, res) => {
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const email = String(req.query.email || '').trim();
+  if (!validators.isValidCodeFormat(code) || !email) return res.status(404).json({ error: 'not-found' });
+  try {
+    const rec = await firebase.getReservationByCodeAndEmail(code, email);
+    if (!rec) return res.status(404).json({ error: 'not-found' });
+    res.json(rec);
+  } catch (err) {
+    console.error('[app] GET /reservations/:code:', err);
+    res.status(500).json({ error: 'internal-error' });
+  }
 });
 
-// Elegir método de pago / reportar un pago — mismo criterio de "el código ES la credencial"
-// que ya regía database.rules.json (una reserva se identifica por su código de 3 letras+3
-// dígitos, sin enumeración posible; quien lo tiene, la controla — decisión ya tomada y
-// documentada en SECURITY.md, no reabierta acá). trafficLimiter (no reservationLimiter): esto
-// nunca crea nada nuevo, mismo costo/riesgo que un pageview.
+// Elegir método de pago / reportar un pago — siguen siendo operaciones de un solo sentido
+// keyed únicamente por código (nunca exigen el correo): "elegir método" y "reportar pago" son
+// transiciones estrechas (none→elegido, none→submitted) que un admin humano siempre revisa antes
+// de que algo quede verificado — el residual de que alguien más con el código puro reporte un
+// pago a nombre de otro es el mismo trade-off ya documentado en SECURITY.md, no el problema que
+// SEC-001 encontró (ese era la lectura de PII completa, ya cerrada arriba). trafficLimiter (no
+// reservationLimiter): esto nunca crea nada nuevo, mismo costo/riesgo que un pageview.
 app.options('/reservations/:code/payment-method', allowSiteOrigin);
 app.post('/reservations/:code/payment-method', allowSiteOrigin, trafficLimiter, async (req, res) => {
   try {

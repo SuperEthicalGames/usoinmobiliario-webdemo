@@ -170,7 +170,13 @@ const toolImplementations = {
   reportPayment: tools.reportPayment,
 };
 
-async function executeFunctionCall(name, args) {
+// `context` (SEC-004, auditoría 2026-09-16): datos de la conversación que NUNCA vienen del
+// modelo (el LLM no los ve ni los controla) — hoy solo lleva la identidad ya verificada
+// estructuralmente por el canal (el número de WhatsApp del remitente, autenticado por la firma
+// HMAC del webhook, ver whatsapp.js). Se pasa aparte de `args` a propósito: mezclarlo con los
+// argumentos que sí arma el modelo abriría la puerta a que un prompt convenza al modelo de
+// "confirmar" un teléfono falso.
+async function executeFunctionCall(name, args, context) {
   const impl = toolImplementations[name];
   if (!impl) {
     console.error('[assistantCore] Modelo pidió una función inexistente:', name);
@@ -181,7 +187,7 @@ async function executeFunctionCall(name, args) {
   // los argumentos reales que se mandaron. Encontró un bug real esta misma sesión (el modelo
   // inventando una fecha de salida sin que el cliente la diera).
   console.log(`[assistantCore] tool call: ${name}(${JSON.stringify(args)})`);
-  return impl(args || {});
+  return impl(args || {}, context || {});
 }
 
 // Personalidad + reglas duras (secciones 5, 14, 19, 21, 24, 29 del pedido). Esto es lo único

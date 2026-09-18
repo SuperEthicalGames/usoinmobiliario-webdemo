@@ -202,11 +202,28 @@ async function createReservationHold(args = {}) {
   }
 }
 
-async function getReservationTool({ code } = {}) {
+// Últimos 10 dígitos — normaliza celular colombiano con/sin indicativo 57 (mismo criterio que
+// adminRoutes.toWhatsAppId, en la dirección inversa: acá comparamos, no armamos un id nuevo).
+function phoneTail(phone) {
+  return String(phone || '').replace(/\D/g, '').slice(-10);
+}
+
+// SEC-004 (auditoría 2026-09-16): antes cualquiera que le escribiera al bot (o al chat web) podía
+// preguntar por un código ajeno (adivinado, visto de reojo, filtrado por otro medio) y enterarse
+// de fechas/monto/estado de pago — nada verificaba que el remitente fuera el dueño de esa reserva.
+// Por WhatsApp, `context.verifiedPhone` es el número real del remitente (autenticado por la firma
+// HMAC del webhook, ver whatsapp.js/geminiProvider.js) — si no coincide con el teléfono de la
+// reserva, se responde exactamente igual que "no existe" (nunca confirmar que el código sí es
+// real pero de otra persona). Por chat web no hay ningún teléfono verificado todavía, así que este
+// chequeo no aplica ahí — sigue protegido solo por chatLimiter (mismo trade-off ya conocido).
+async function getReservationTool({ code } = {}, context = {}) {
   try {
     if (!validators.isValidCodeFormat(code)) return { ok: false, error: 'Formato de código inválido. Debe ser 3 letras + 3 números, ej. ABC123.' };
     const rec = await fb.getReservationByCode(code);
     if (!rec) return { ok: true, found: false };
+    if (context.verifiedPhone && rec.phone && phoneTail(rec.phone) !== phoneTail(context.verifiedPhone)) {
+      return { ok: true, found: false };
+    }
     return {
       ok: true,
       found: true,

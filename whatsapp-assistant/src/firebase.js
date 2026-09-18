@@ -315,6 +315,27 @@ async function getReservationByCode(code) {
   return visitSnap.exists() ? visitSnap.val() : null;
 }
 
+// SEC-001 (auditoría 2026-09-16): reservationsManager/{reservations,visits}/$code ya NO es de
+// lectura pública en database.rules.json — antes ".read": true ahí permitía a cualquiera con el
+// código (adivinado, o listado completo vía unitBookings, que exponía TODOS los códigos en su
+// raíz pública) leer nombre/teléfono/correo/priceSnapshot/paymentReport de cualquier reserva. La
+// consulta pública de "Mi reserva" ahora exige también el correo real de esa reserva (mismo
+// criterio ya usado por emailService.resolveVerifiedReservationEmail para reenviar correos) —
+// el código sigue siendo el identificador, el correo es lo que de verdad autoriza ver el detalle.
+// Devuelve null tanto si el código no existe como si el correo no coincide (mismo error genérico
+// en el caller — no hay que distinguir "existe pero es de otra persona" de "no existe").
+// reservationEmailMatches separado como función pura (exportada) para poder testear la
+// comparación real (trim/case-insensitive/vacíos) sin necesitar Firebase.
+function reservationEmailMatches(rec, email) {
+  const trimmedEmail = String(email || '').trim().toLowerCase();
+  return !!(trimmedEmail && rec && rec.email && String(rec.email).trim().toLowerCase() === trimmedEmail);
+}
+async function getReservationByCodeAndEmail(code, email) {
+  const rec = await getReservationByCode(code);
+  if (!rec) return null;
+  return reservationEmailMatches(rec, email) ? rec : null;
+}
+
 async function getUnitBookings(unitKey) {
   const snap = await dbGet(`unitBookings/${unitKey}`);
   return snap.val() || {};
@@ -841,9 +862,13 @@ async function setAdminUserDisabled(uid, disabled) {
 }
 
 // --- Roles (RBAC) — OWNER nunca vive acá, es siempre config.superAdminEmail comparado en
-// adminAuth.attachRole (decisión ya tomada en SECURITY.md, no reabierta). Este nodo solo
-// distingue 'employee' de 'admin' para el resto de las cuentas; ausencia de documento =
-// 'admin' (compatibilidad hacia atrás con cuentas creadas antes de que RBAC existiera). ---
+// adminAuth.attachRole (decisión ya tomada en SECURITY.md, no reabierta). Este nodo distingue
+// 'employee' de 'admin' para el resto de las cuentas.
+// SEC-002 (auditoría 2026-09-16): ausencia de documento YA NO significa 'admin' — significa SIN
+// ROL, y adminAuth.attachRole ahora rechaza con 403 en ese caso (fail-closed, ver el comentario
+// de attachRole para el porqué). Toda cuenta admin/employee real debe tener su roles/{uid}
+// escrito explícitamente (createStaffUser ya lo hace para cuentas nuevas; las anteriores a este
+// cambio necesitaron un backfill de una sola vez). ---
 async function getUserRole(uid) {
   const snap = await dbGet(`roles/${uid}`);
   const val = snap.val();
@@ -861,14 +886,17 @@ async function createStaffUser(email, password, role, actorEmail) {
   return { ...user, role };
 }
 // Fusiona las cuentas reales de Firebase Auth con su rol — el dueño nunca aparece con un
-// documento en roles/, se deriva comparando el email igual que attachRole.
+// documento en roles/, se deriva comparando el email igual que attachRole. role: null (SEC-002)
+// para una cuenta autenticable pero sin roles/{uid} — ya no se muestra como 'admin' a secas,
+// para que el panel pueda señalar que esa cuenta hoy no puede entrar (attachRole la rechaza).
 async function listUsersWithRoles() {
   const [authUsers, rolesSnap] = await Promise.all([listAdminUsers(), dbGet('roles')]);
   const roles = rolesSnap.val() || {};
-  return authUsers.map((u) => ({
-    ...u,
-    role: u.email === config.superAdminEmail ? 'owner' : (roles[u.uid] && roles[u.uid].role === 'employee' ? 'employee' : 'admin'),
-  }));
+  return authUsers.map((u) => {
+    if (u.email === config.superAdminEmail) return { ...u, role: 'owner' };
+    const documented = roles[u.uid] && roles[u.uid].role;
+    return { ...u, role: documented === 'admin' || documented === 'employee' ? documented : null };
+  });
 }
 
 // --- Notificaciones — un nodo por destinatario (nunca compartido entre cuentas, cada quien
@@ -946,7 +974,7 @@ async function sendPushToUid(uid, payload) {
 async function notifyAllStaff({ type, message, targetCode }) {
   const users = await listUsersWithRoles();
   await Promise.all(users
-    .filter((u) => u.role !== 'employee' && !u.disabled)
+    .filter((u) => (u.role === 'owner' || u.role === 'admin') && !u.disabled)
     .map((u) => createNotification(u.uid, { type, message, targetCode }).catch((err) => {
       console.error('[firebase] notifyAllStaff: no se pudo notificar a', u.uid, err.message);
     })));
@@ -1327,6 +1355,8 @@ module.exports = {
   removePushSubscription,
   notifyAllStaff,
   getReservationByCode,
+  getReservationByCodeAndEmail,
+  reservationEmailMatches,
   getUnitBookings,
   checkAvailability,
   effectiveStatus,
