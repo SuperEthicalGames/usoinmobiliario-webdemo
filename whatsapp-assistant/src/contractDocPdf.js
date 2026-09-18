@@ -122,6 +122,11 @@ function generateContractDocumentPdf(contract) {
     doc.fontSize(16).text('Contrato de arrendamiento de vivienda urbana', 122, 42);
     doc.font('Helvetica').fontSize(9).text(`Contrato N.° ${contract.code} · ${contract.unitLabel}${contract.roomCode ? ' · ' + contract.roomCode : ''}`, 122, 66);
 
+    // Los `.text(..., 122, y)` del encabezado dejan doc.x clavado en 122 (a la derecha del
+    // logo): sin este reset, todo el cuerpo (párrafo intro + las 24 cláusulas) hereda ese x en
+    // vez del margen real de la página (56), dando un margen izquierdo ~2x más ancho que el
+    // derecho.
+    doc.x = doc.page.margins.left;
     doc.moveDown(2.5);
     doc.font('Helvetica').fontSize(9.5).fillColor(BRAND.ink).text(
       `ENTRE LOS SUSCRITOS A SABER: ${LANDLORD.name}, mayor de edad, vecino de Medellín, identificado con cédula de ciudadanía No. ${LANDLORD.cedula}, obrando en su calidad de propietario del establecimiento comercial con domicilio en Medellín denominado ${LANDLORD.business}, que posee matrícula de arrendador de vivienda urbana No. ${LANDLORD.matricula} concedida por la Secretaría de Gobierno y Derechos Humanos de la ciudad de Medellín, quien en adelante y para efectos del presente contrato se denominará EL ARRENDADOR, por una parte, y por otra parte ${tenantListText(contract.tenants)}, obrando en su(s) propio(s) nombre(s), quien(es) proceden y se obligan solidariamente y se denominarán ${contract.tenants.length > 1 ? 'LOS ARRENDATARIOS SOLIDARIOS' : 'EL ARRENDATARIO SOLIDARIO'}` +
