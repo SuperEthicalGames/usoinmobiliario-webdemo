@@ -223,10 +223,7 @@ router.post('/reservations', STAFF, asyncHandler(async (req, res) => {
   });
   // Fire-and-forget — mismo evento que dispara POST /reservations del sitio público, para que el
   // resto del staff (no solo quien la creó acá) se entere igual.
-  fb.notifyAllStaff({
-    type: 'reservation', targetCode: created.code,
-    message: `Nueva reserva manual ${created.code} — ${created.unitLabel} · ${created.name}`,
-  }).catch(() => {});
+  fb.notifyStaffOfReservation(created, { manual: true }).catch(() => {});
   res.status(201).json(created);
 }));
 
@@ -484,9 +481,9 @@ function assertOwnedByEmployeeOrStaff(req, record) {
     const e = new Error('not-found'); e.code = 'not-found'; throw e;
   }
 }
-async function notifyAssignee(assignedTo, { type, message, targetCode }) {
+async function notifyAssignee(assignedTo, { type, message, targetCode, meta }) {
   if (!assignedTo) return;
-  try { await fb.createNotification(assignedTo, { type, message, targetCode }); }
+  try { await fb.createNotification(assignedTo, { type, message, targetCode, meta }); }
   catch (err) { console.error('[adminRoutes] No se pudo crear la notificación:', err.message); }
 }
 
@@ -511,7 +508,10 @@ router.post('/cleaning', STAFF, asyncHandler(async (req, res) => {
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createCleaningTask({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}` });
   await logAction(req, 'cleaning.create', created.code, { unitType, unitNum, assignedTo: assignedTo || null });
-  await notifyAssignee(assignedTo, { type: 'cleaning', message: `Aseo asignado — ${created.unitLabel} (${created.scheduledDate})`, targetCode: created.code });
+  await notifyAssignee(assignedTo, {
+    type: 'cleaning', message: `Aseo asignado — ${created.unitLabel} (${created.scheduledDate})`, targetCode: created.code,
+    meta: { unit: created.unitLabel, date: created.scheduledDate, detail: created.notes },
+  });
   res.status(201).json(created);
 }));
 const CLEANING_STATUSES = new Set(['pendiente', 'en-progreso', 'completado']);
@@ -537,7 +537,10 @@ router.post('/maintenance', STAFF, asyncHandler(async (req, res) => {
   if (missing.length > 0) return res.status(400).json({ error: 'invalid', missingFields: missing });
   const created = await fb.createMaintenanceTicket({ ...req.body, unitLabel: unitLabel || `Apartamento H${unitNum}`, reportedBy: req.adminUser.email });
   await logAction(req, 'maintenance.create', created.code, { unitType, unitNum, assignedTo: assignedTo || null });
-  await notifyAssignee(assignedTo, { type: 'maintenance', message: `Mantenimiento asignado — ${created.unitLabel}: ${created.title}`, targetCode: created.code });
+  await notifyAssignee(assignedTo, {
+    type: 'maintenance', message: `Mantenimiento asignado — ${created.unitLabel}: ${created.title}`, targetCode: created.code,
+    meta: { unit: created.unitLabel, title: created.title, priority: created.priority, detail: created.description },
+  });
   res.status(201).json(created);
 }));
 const MAINTENANCE_STATUSES = new Set(['abierto', 'en-progreso', 'resuelto']);
@@ -565,6 +568,9 @@ router.get('/site-traffic', STAFF, asyncHandler(async (req, res) => {
 router.get('/notifications', ANY_STAFF, asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
   res.json(await fb.listNotificationsForUser(req.adminUser.uid, limit));
+}));
+router.post('/notifications/read-all', ANY_STAFF, asyncHandler(async (req, res) => {
+  res.json({ ok: true, ...(await fb.markAllNotificationsRead(req.adminUser.uid)) });
 }));
 router.post('/notifications/:id/read', ANY_STAFF, asyncHandler(async (req, res) => {
   await fb.markNotificationRead(req.adminUser.uid, req.params.id);

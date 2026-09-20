@@ -309,10 +309,7 @@ app.post('/reservations', allowSiteOrigin, reservationLimiter, async (req, res) 
     // esto como notificación push real aunque no tengan el panel abierto (ver
     // firebase.js:notifyAllStaff/sendPushToUid), pero un fallo acá nunca debe tumbar la reserva
     // que ya se creó bien.
-    firebase.notifyAllStaff({
-      type: 'reservation', targetCode: created.code,
-      message: `Nueva reserva ${created.code} — ${created.unitLabel} · ${created.name}`,
-    }).catch(() => {});
+    firebase.notifyStaffOfReservation(created).catch(() => {});
     res.status(201).json(created);
   } catch (err) {
     sendReservationError(req, res, err);
@@ -326,6 +323,8 @@ app.post('/visits', allowSiteOrigin, reservationLimiter, async (req, res) => {
       const { rec, isGeneral } = await reservationBuilder.buildVisitRecord(req.body || {});
       return isGeneral ? firebase.createGeneralVisit(rec) : firebase.createSpecificVisit(rec);
     });
+    // Antes una cita nueva no avisaba a nadie del staff (solo las reservas y los pagos).
+    firebase.notifyStaffOfVisit(created).catch(() => {});
     res.status(201).json(created);
   } catch (err) {
     sendReservationError(req, res, err);
@@ -415,10 +414,7 @@ app.post('/reservations/:code/payment-report', allowSiteOrigin, trafficLimiter, 
     // justo el tipo de evento que un dueño quiere saber sin tener el panel abierto. Este
     // endpoint es SIEMPRE transferencia (efectivo no tiene paso de "reportar", lo confirma un
     // admin en persona — ver cashPaymentHtml en index.html), no hace falta chequear el método.
-    firebase.notifyAllStaff({
-      type: 'payment', targetCode: code,
-      message: `${code} reportó una transferencia por $${Number(report.amount).toLocaleString('es-CO')} — pendiente de verificar`,
-    }).catch(() => {});
+    firebase.notifyStaffOfPayment(updated, report).catch(() => {});
     res.json(updated);
   } catch (err) {
     sendReservationError(req, res, err);

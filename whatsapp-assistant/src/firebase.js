@@ -904,14 +904,45 @@ async function listUsersWithRoles() {
 // solo puede leer/marcar las suyas — ver requireRole+chequeo de dueño en adminRoutes.js). Se
 // crean desde el servidor únicamente (ej. al asignar una tarea de aseo/mantenimiento), nunca
 // directo desde el cliente. ---
-async function createNotification(uid, { type, message, targetCode }) {
+// `meta`: datos estructurados del evento (unidad, cliente, monto, fechas...) para que el panel
+// pueda mostrar la notificación como una tarjeta con lo importante a la vista, en vez de solo el
+// texto plano de `message` (que se conserva, es lo que ven las notificaciones antiguas y el push).
+// RTDB rechaza `undefined` en set(), así que se descartan los vacíos; sin datos -> se omite.
+function cleanNotificationMeta(meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  const out = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (v !== undefined && v !== null && v !== '') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+const PUSH_TITLES = {
+  reservation: 'Nueva reserva',
+  payment: 'Pago por verificar',
+  visit: 'Nueva visita',
+  cleaning: 'Aseo asignado',
+  maintenance: 'Mantenimiento asignado',
+};
+// Título del push del sistema operativo según el tipo (antes todos decían solo "Uso Inmobiliario"
+// y no se distinguía a simple vista una reserva de un pago). `type` viaja en el payload para que
+// el service worker sepa a qué pantalla llevar al hacer clic (ver public/sw.js del panel).
+function pushPayloadFor({ type, message, targetCode, meta }) {
+  const base = PUSH_TITLES[type] || 'Uso Inmobiliario';
+  const title = meta && meta.unit ? `${base} · ${meta.unit}` : base;
+  return { title, body: message, type: type || null, targetCode: targetCode || null };
+}
+
+async function createNotification(uid, { type, message, targetCode, meta }) {
   const ref = db().ref(`notifications/${uid}`).push();
+  const cleanMeta = cleanNotificationMeta(meta);
   const entry = { type, message, targetCode: targetCode || null, read: false, createdAt: new Date().toISOString() };
+  if (cleanMeta) entry.meta = cleanMeta;
   await withTimeout(ref.set(entry), 'notification.create');
   // Fire-and-forget, nunca awaited (mismo criterio que notifyByEmail en adminRoutes.js) — un
   // push que falla en entregarse nunca debe tumbar la creación de la notificación en sí, que ya
   // se guardó bien arriba y sigue viéndose dentro del panel de todos modos.
-  sendPushToUid(uid, { title: 'Uso Inmobiliario', body: message, targetCode: targetCode || null }).catch(() => {});
+  sendPushToUid(uid, pushPayloadFor({ type, message, targetCode, meta: cleanMeta })).catch(() => {});
   return { id: ref.key, ...entry };
 }
 async function listNotificationsForUser(uid, limit) {
@@ -921,6 +952,17 @@ async function listNotificationsForUser(uid, limit) {
 }
 async function markNotificationRead(uid, id) {
   await dbSet(`notifications/${uid}/${id}/read`, true);
+}
+// Marca como leídas todas las no leídas de ESTE usuario (solo las últimas 200, mismo tope que
+// usa el panel para listar) — un solo update multi-ruta en vez de una llamada por notificación.
+async function markAllNotificationsRead(uid) {
+  const snap = await withTimeout(db().ref(`notifications/${uid}`).orderByKey().limitToLast(200).get(), 'notifications.readAll');
+  const updates = {};
+  for (const [id, entry] of Object.entries(snap.val() || {})) {
+    if (entry && entry.read !== true) updates[`notifications/${uid}/${id}/read`] = true;
+  }
+  if (Object.keys(updates).length > 0) await dbUpdate(updates);
+  return { updated: Object.keys(updates).length };
 }
 
 // --- Notificaciones push del sistema operativo (Web Push: Push API + Service Worker + VAPID,
@@ -972,13 +1014,38 @@ async function sendPushToUid(uid, payload) {
 // criterios de acceso que ya usa el resto del panel) — para eventos que le importan al negocio
 // entero, no a una sola persona asignada (a diferencia de aseo/mantenimiento, que sí tienen un
 // assignedTo y usan createNotification directo).
-async function notifyAllStaff({ type, message, targetCode }) {
+async function notifyAllStaff({ type, message, targetCode, meta }) {
   const users = await listUsersWithRoles();
   await Promise.all(users
     .filter((u) => (u.role === 'owner' || u.role === 'admin') && !u.disabled)
-    .map((u) => createNotification(u.uid, { type, message, targetCode }).catch((err) => {
+    .map((u) => createNotification(u.uid, { type, message, targetCode, meta }).catch((err) => {
       console.error('[firebase] notifyAllStaff: no se pudo notificar a', u.uid, err.message);
     })));
+}
+
+// Un solo lugar arma el mensaje y los datos de cada evento que le importa al staff — antes el
+// sitio público, el panel (reserva manual) y el bot construían cada uno su propio texto, y los
+// canales que no lo hacían (citas, reservas por WhatsApp) simplemente no avisaban a nadie.
+function notifyStaffOfReservation(rec, { manual } = {}) {
+  return notifyAllStaff({
+    type: 'reservation', targetCode: rec.code,
+    message: `${manual ? 'Nueva reserva manual' : 'Nueva reserva'} ${rec.code} — ${rec.unitLabel} · ${rec.name}`,
+    meta: { unit: rec.unitLabel, person: rec.name, checkin: rec.checkin, checkout: rec.checkout, nights: rec.nights, guests: rec.guests, amount: rec.estTotal },
+  });
+}
+function notifyStaffOfVisit(rec) {
+  return notifyAllStaff({
+    type: 'visit', targetCode: rec.code,
+    message: `Nueva visita ${rec.code} — ${rec.unitLabel} · ${rec.name}`,
+    meta: { unit: rec.unitLabel, person: rec.name, date: rec.visitDate, time: rec.visitTime },
+  });
+}
+function notifyStaffOfPayment(rec, report) {
+  return notifyAllStaff({
+    type: 'payment', targetCode: rec.code,
+    message: `${rec.code} reportó una transferencia por $${Number(report.amount).toLocaleString('es-CO')} — pendiente de verificar`,
+    meta: { unit: rec.unitLabel, person: rec.name, amount: report.amount, bank: report.bank, reference: report.reference },
+  });
 }
 
 // --- Contratos (arriendo formal — cubre estadías largas que van más allá de una reserva
@@ -1352,6 +1419,12 @@ module.exports = {
   createNotification,
   listNotificationsForUser,
   markNotificationRead,
+  markAllNotificationsRead,
+  pushPayloadFor,
+  cleanNotificationMeta,
+  notifyStaffOfReservation,
+  notifyStaffOfVisit,
+  notifyStaffOfPayment,
   savePushSubscription,
   removePushSubscription,
   notifyAllStaff,

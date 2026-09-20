@@ -169,6 +169,9 @@ async function createReservationHold(args = {}) {
     emailService.sendReservationConfirmation({ code: created.code, email: created.email }).catch((err) => {
       console.error(`[businessTools] No se pudo enviar el correo de confirmación de ${created.code}:`, err.code || err.message);
     });
+    // El staff también debe enterarse de las reservas que crea el bot (antes solo las del sitio
+    // público y las manuales del panel avisaban) — mismo criterio fire-and-forget.
+    fb.notifyStaffOfReservation(created).catch(() => {});
 
     return {
       ok: true,
@@ -257,6 +260,7 @@ async function createVisit(args = {}) {
     emailService.sendVisitConfirmation({ code: created.code, email: created.email }).catch((err) => {
       console.error(`[businessTools] No se pudo enviar el correo de confirmación de cita ${created.code}:`, err.code || err.message);
     });
+    fb.notifyStaffOfVisit(created).catch(() => {});
 
     return { ok: true, code: created.code };
   } catch (err) {
